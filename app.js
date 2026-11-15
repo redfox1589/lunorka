@@ -1019,14 +1019,22 @@ function viewProfile() {
 }
 
 /* ================= запуск ================= */
-sb.auth.onAuthStateChange((event) => {
+sb.auth.onAuthStateChange(async (event, session) => {
   if (event === 'PASSWORD_RECOVERY') {
     renderAuth('newpass');
-  } else if (event === 'SIGNED_OUT') {
+    return;
+  }
+  if (event === 'SIGNED_OUT') {
     currentUser = null;
     data = null;
     location.hash = '';
     renderAuth('login');
+    return;
+  }
+  if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user && !currentUser) {
+    await loginAs(session.user);
+    if (event === 'SIGNED_IN') toast(t('welcomeBack').replace('{name}', currentUser.name));
+    render();
   }
 });
 
@@ -1036,7 +1044,7 @@ sb.auth.onAuthStateChange((event) => {
   document.documentElement.lang = getLang();
 
   const { data: { session } } = await sb.auth.getSession();
-  if (session?.user) await loginAs(session.user);
+  if (session?.user && !currentUser) await loginAs(session.user);
 
   window.addEventListener('hashchange', render);
   render();
