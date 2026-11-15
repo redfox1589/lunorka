@@ -1,5 +1,10 @@
 'use strict';
 
+/* ================= Supabase ================= */
+const SUPABASE_URL = 'https://kpuccjrlvpfuqmcxwcjl.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_spJjBUqtqFyI5RMZfMY3Ow_3S34W_sc';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 /* ================= утилиты ================= */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -15,12 +20,6 @@ function esc(str) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
-}
-
-function simpleHash(str) {
-  let h = 5381;
-  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0;
-  return 'h' + h.toString(36);
 }
 
 let toastTimer = null;
@@ -46,15 +45,20 @@ const I18N = {
     tagline: 'Магическая кулинарная книга',
     login: 'Вход', register: 'Регистрация', resetTab: 'Сброс пароля',
     email: 'Почта', password: 'Пароль', name: 'Имя', newPassword: 'Новый пароль',
-    signIn: 'Войти', signUp: 'Создать аккаунт', resetBtn: 'Сбросить пароль',
+    signIn: 'Войти', signUp: 'Создать аккаунт', resetBtn: 'Отправить письмо',
     forgot: 'Забыли пароль?', backToLogin: '← Назад ко входу',
-    resetInfo: 'Демо-режим: письмо не отправляется — пароль меняется сразу после ввода почты.',
+    resetInfo: 'Мы отправим на почту ссылку для сброса пароля.',
+    newPassTitle: 'Придумайте новый пароль',
+    saveNewPass: 'Сохранить пароль',
+    checkEmail: 'Мы отправили письмо — подтвердите почту и войдите.',
+    resetSent: 'Письмо для сброса пароля отправлено.',
     errFill: 'Заполните все поля',
     errEmail: 'Введите корректную почту',
     errEmailUsed: 'Эта почта уже зарегистрирована',
     errNoUser: 'Пользователь с такой почтой не найден',
-    errWrongPass: 'Неверный пароль',
-    errShortPass: 'Пароль должен быть не короче 4 символов',
+    errWrongPass: 'Неверная почта или пароль',
+    errShortPass: 'Пароль должен быть не короче 6 символов',
+    errGeneric: 'Что-то пошло не так. Попробуйте ещё раз.',
     welcomeBack: 'С возвращением, {name}!',
     accountCreated: 'Добро пожаловать в Lunorka, {name}!',
     passwordChanged: 'Пароль изменён',
@@ -102,15 +106,20 @@ const I18N = {
     tagline: 'A magical cookbook',
     login: 'Sign in', register: 'Sign up', resetTab: 'Reset password',
     email: 'Email', password: 'Password', name: 'Name', newPassword: 'New password',
-    signIn: 'Sign in', signUp: 'Create account', resetBtn: 'Reset password',
+    signIn: 'Sign in', signUp: 'Create account', resetBtn: 'Send email',
     forgot: 'Forgot password?', backToLogin: '← Back to sign in',
-    resetInfo: 'Demo mode: no email is sent — the password changes right away.',
+    resetInfo: 'We will email you a password reset link.',
+    newPassTitle: 'Choose a new password',
+    saveNewPass: 'Save password',
+    checkEmail: 'We sent you an email — confirm it and sign in.',
+    resetSent: 'Password reset email sent.',
     errFill: 'Please fill in all fields',
     errEmail: 'Enter a valid email',
     errEmailUsed: 'This email is already registered',
     errNoUser: 'No user with this email',
-    errWrongPass: 'Wrong password',
-    errShortPass: 'Password must be at least 4 characters',
+    errWrongPass: 'Wrong email or password',
+    errShortPass: 'Password must be at least 6 characters',
+    errGeneric: 'Something went wrong. Please try again.',
     welcomeBack: 'Welcome back, {name}!',
     accountCreated: 'Welcome to Lunorka, {name}!',
     passwordChanged: 'Password changed',
@@ -158,45 +167,17 @@ const I18N = {
 
 const CATEGORIES = ['breakfasts', 'soups', 'salads', 'mains', 'desserts', 'drinks', 'snacks', 'baking'];
 
-function t(key) {
-  const lang = (currentUser && data?.settings?.lang) || localStorage.getItem('lunorka_lang') || 'ru';
-  return (I18N[lang] && I18N[lang][key]) ?? I18N.ru[key] ?? key;
-}
-
 function getLang() {
   return (currentUser && data?.settings?.lang) || localStorage.getItem('lunorka_lang') || 'ru';
 }
-
-/* ================= хранилище ================= */
-function getUsers() {
-  try { return JSON.parse(localStorage.getItem('lunorka_users')) || []; }
-  catch { return []; }
-}
-function saveUsers(users) {
-  localStorage.setItem('lunorka_users', JSON.stringify(users));
-}
-function getSession() { return localStorage.getItem('lunorka_session'); }
-function setSession(email) {
-  if (email) localStorage.setItem('lunorka_session', email);
-  else localStorage.removeItem('lunorka_session');
-}
-function dataKey(email) { return 'lunorka_data_' + email; }
-
-function loadData(email) {
-  try {
-    const d = JSON.parse(localStorage.getItem(dataKey(email)));
-    if (d && Array.isArray(d.recipes)) return d;
-  } catch { /* ignore */ }
-  return { recipes: [], shopping: [], settings: { theme: localStorage.getItem('lunorka_theme') || 'dark', lang: localStorage.getItem('lunorka_lang') || 'ru' }, seeded: false };
-}
-function saveData() {
-  if (!currentUser) return;
-  localStorage.setItem(dataKey(currentUser.email), JSON.stringify(data));
+function t(key) {
+  const lang = getLang();
+  return (I18N[lang] && I18N[lang][key]) ?? I18N.ru[key] ?? key;
 }
 
 /* ================= состояние ================= */
-let currentUser = null;
-let data = null;
+let currentUser = null; // {id, email, name, meta}
+let data = null;        // {recipes, shopping, settings:{theme, lang}}
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
@@ -207,8 +188,8 @@ function applyTheme(theme) {
 function seedRecipes() {
   return [
     {
-      id: uid() + 'a', name: 'Лунный суп из тыквы', photo: '', emoji: '🎃',
-      category: 'soups', time: 35, servings: 4, favorite: true, createdAt: Date.now() - 4000,
+      name: 'Лунный суп из тыквы', photo: '', emoji: '🎃',
+      category: 'soups', time: 35, servings: 4, favorite: true,
       ingredients: [
         { name: 'Тыква', amount: '500 г' },
         { name: 'Лук', amount: '1 шт.' },
@@ -224,8 +205,8 @@ function seedRecipes() {
       ],
     },
     {
-      id: uid() + 'b', name: 'Эликсир лесных ягод', photo: '', emoji: '🍇',
-      category: 'drinks', time: 10, servings: 2, favorite: false, createdAt: Date.now() - 3000,
+      name: 'Эликсир лесных ягод', photo: '', emoji: '🍇',
+      category: 'drinks', time: 10, servings: 2, favorite: false,
       ingredients: [
         { name: 'Смесь замороженных ягод', amount: '300 г' },
         { name: 'Мёд', amount: '1 ст. л.' },
@@ -239,8 +220,8 @@ function seedRecipes() {
       ],
     },
     {
-      id: uid() + 'c', name: 'Печенье «Звёздная пыль»', photo: '', emoji: '✨',
-      category: 'baking', time: 40, servings: 6, favorite: false, createdAt: Date.now() - 2000,
+      name: 'Печенье «Звёздная пыль»', photo: '', emoji: '✨',
+      category: 'baking', time: 40, servings: 6, favorite: false,
       ingredients: [
         { name: 'Мука', amount: '250 г' },
         { name: 'Сливочное масло', amount: '120 г' },
@@ -255,8 +236,8 @@ function seedRecipes() {
       ],
     },
     {
-      id: uid() + 'd', name: 'Завтрак «Рассвет ведьмы»', photo: '', emoji: '🌅',
-      category: 'breakfasts', time: 15, servings: 1, favorite: false, createdAt: Date.now() - 1000,
+      name: 'Завтрак «Рассвет ведьмы»', photo: '', emoji: '🌅',
+      category: 'breakfasts', time: 15, servings: 1, favorite: false,
       ingredients: [
         { name: 'Овсянка', amount: '50 г' },
         { name: 'Молоко', amount: '200 мл' },
@@ -288,10 +269,72 @@ function makeStars() {
   }
 }
 
+/* ================= слой данных (Supabase) ================= */
+function rowToRecipe(r) {
+  return {
+    id: r.id, name: r.name, photo: r.photo || '', emoji: r.emoji || '',
+    category: r.category, time: r.time, servings: r.servings,
+    ingredients: r.ingredients || [], steps: r.steps || [],
+    favorite: !!r.favorite, createdAt: new Date(r.created_at).getTime(),
+  };
+}
+function rowToItem(i) {
+  return { id: i.id, name: i.name, amount: i.amount || '', done: !!i.done, from: i.from_name || '' };
+}
+
+async function loadUserData() {
+  const [recipesRes, shoppingRes] = await Promise.all([
+    sb.from('recipes').select('*').order('created_at', { ascending: false }),
+    sb.from('shopping_items').select('*').order('created_at', { ascending: true }),
+  ]);
+  if (recipesRes.error) console.error(recipesRes.error);
+  if (shoppingRes.error) console.error(shoppingRes.error);
+  data.recipes = (recipesRes.data || []).map(rowToRecipe);
+  data.shopping = (shoppingRes.data || []).map(rowToItem);
+}
+
+/* Первый вход: переносим старые данные из localStorage или сеем стартовые рецепты */
+async function migrateOrSeed() {
+  if (data.recipes.length) return;
+  const flag = 'lunorka_migrated_' + currentUser.id;
+  if (localStorage.getItem(flag)) return;
+
+  let old = null;
+  try { old = JSON.parse(localStorage.getItem('lunorka_data_' + currentUser.email)); } catch { /* ignore */ }
+
+  if (old && ((old.recipes && old.recipes.length) || (old.shopping && old.shopping.length))) {
+    if (old.recipes && old.recipes.length) {
+      await sb.from('recipes').insert(old.recipes.map(r => ({
+        name: r.name, photo: r.photo || '', emoji: r.emoji || '',
+        category: r.category || 'mains', time: r.time || 30, servings: r.servings || 2,
+        ingredients: r.ingredients || [], steps: r.steps || [], favorite: !!r.favorite,
+      })));
+    }
+    if (old.shopping && old.shopping.length) {
+      await sb.from('shopping_items').insert(old.shopping.map(i => ({
+        name: i.name, amount: i.amount || '', from_name: i.from || '', done: !!i.done,
+      })));
+    }
+    localStorage.removeItem('lunorka_data_' + currentUser.email);
+  } else {
+    await sb.from('recipes').insert(seedRecipes());
+  }
+  localStorage.setItem(flag, '1');
+  await loadUserData();
+}
+
 /* ================= авторизация ================= */
+function mapAuthError(msg) {
+  if (!msg) return t('errGeneric');
+  if (/invalid login credentials/i.test(msg)) return t('errWrongPass');
+  if (/already registered|already been registered/i.test(msg)) return t('errEmailUsed');
+  if (/user not found/i.test(msg)) return t('errNoUser');
+  return t('errGeneric');
+}
+
 function renderAuth(mode = 'login') {
   const app = $('#app');
-  const tabs = mode !== 'reset' ? `
+  const tabs = (mode === 'login' || mode === 'register') ? `
     <div class="auth-tabs">
       <button class="${mode === 'login' ? 'active' : ''}" data-mode="login">${t('login')}</button>
       <button class="${mode === 'register' ? 'active' : ''}" data-mode="register">${t('register')}</button>
@@ -316,16 +359,23 @@ function renderAuth(mode = 'login') {
         <div class="auth-error" id="auth-error"></div>
         <button class="btn btn--block" type="submit">${t('signUp')}</button>
       </form>`;
-  } else {
+  } else if (mode === 'reset') {
     body = `
       <div class="auth-note">${t('resetInfo')}</div>
       <form id="auth-form" novalidate>
         <div class="field"><label>${t('email')}</label><input type="email" name="email" autocomplete="email" required></div>
-        <div class="field"><label>${t('newPassword')}</label><input type="password" name="password" autocomplete="new-password" required></div>
         <div class="auth-error" id="auth-error"></div>
         <button class="btn btn--block" type="submit">${t('resetBtn')}</button>
       </form>
       <div class="auth-links"><button class="link-btn" id="to-login">${t('backToLogin')}</button></div>`;
+  } else { // newpass — пришли по ссылке из письма
+    body = `
+      <div class="auth-note">${t('newPassTitle')}</div>
+      <form id="auth-form" novalidate>
+        <div class="field"><label>${t('newPassword')}</label><input type="password" name="password" autocomplete="new-password" required></div>
+        <div class="auth-error" id="auth-error"></div>
+        <button class="btn btn--block" type="submit">${t('saveNewPass')}</button>
+      </form>`;
   }
 
   app.innerHTML = `
@@ -340,7 +390,7 @@ function renderAuth(mode = 'login') {
   $('#to-reset')?.addEventListener('click', () => renderAuth('reset'));
   $('#to-login')?.addEventListener('click', () => renderAuth('login'));
 
-  $('#auth-form').addEventListener('submit', (e) => {
+  $('#auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const email = (fd.get('email') || '').trim().toLowerCase();
@@ -348,52 +398,77 @@ function renderAuth(mode = 'login') {
     const name = (fd.get('name') || '').trim();
     const errEl = $('#auth-error');
     const fail = (msg) => { errEl.textContent = msg; };
+    const submitBtn = $('button[type="submit"]', e.target);
+    submitBtn.disabled = true;
+    const done = () => { submitBtn.disabled = false; };
 
-    if (!email || !password || (mode === 'register' && !name)) return fail(t('errFill'));
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(t('errEmail'));
-    if (password.length < 4) return fail(t('errShortPass'));
-
-    const users = getUsers();
-    const user = users.find(u => u.email === email);
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { done(); return fail(t('errEmail')); }
+    if (mode !== 'reset') {
+      if (!password || (mode === 'register' && (!name || !email)) || (mode === 'login' && !email)) { done(); return fail(t('errFill')); }
+      if (password.length < 6) { done(); return fail(t('errShortPass')); }
+    } else if (!email) { done(); return fail(t('errFill')); }
 
     if (mode === 'register') {
-      if (user) return fail(t('errEmailUsed'));
-      users.push({ name, email, passHash: simpleHash(password), createdAt: Date.now() });
-      saveUsers(users);
-      loginAs(users[users.length - 1]);
-      data.recipes = seedRecipes();
-      data.seeded = true;
-      saveData();
+      const { data: res, error } = await sb.auth.signUp({ email, password, options: { data: { name } } });
+      done();
+      if (error) return fail(mapAuthError(error.message));
+      if (!res.session) { errEl.textContent = ''; return fail(t('checkEmail')); }
       toast(t('accountCreated').replace('{name}', name));
-      navigate('#/recipes');
     } else if (mode === 'login') {
-      if (!user) return fail(t('errNoUser'));
-      if (user.passHash !== simpleHash(password)) return fail(t('errWrongPass'));
-      loginAs(user);
-      toast(t('welcomeBack').replace('{name}', user.name));
-      navigate('#/recipes');
-    } else {
-      if (!user) return fail(t('errNoUser'));
-      user.passHash = simpleHash(password);
-      saveUsers(users);
-      toast(t('passwordChanged'));
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      done();
+      if (error) return fail(mapAuthError(error.message));
+    } else if (mode === 'reset') {
+      const { error } = await sb.auth.resetPasswordForEmail(email, {
+        redirectTo: location.origin + location.pathname,
+      });
+      done();
+      if (error) return fail(mapAuthError(error.message));
+      errEl.textContent = '';
+      toast(t('resetSent'));
       renderAuth('login');
+    } else { // newpass
+      const { error } = await sb.auth.updateUser({ password });
+      done();
+      if (error) return fail(mapAuthError(error.message));
+      history.replaceState(null, '', location.pathname);
+      toast(t('passwordChanged'));
+      navigate('#/recipes');
     }
   });
 }
 
-function loginAs(user) {
-  currentUser = user;
-  setSession(user.email);
-  data = loadData(user.email);
-  localStorage.setItem('lunorka_lang', data.settings.lang || 'ru');
-  applyTheme(data.settings.theme || 'dark');
+async function loginAs(user) {
+  const meta = user.user_metadata || {};
+  currentUser = {
+    id: user.id,
+    email: user.email,
+    name: meta.name || user.email.split('@')[0],
+    meta,
+  };
+  data = {
+    recipes: [],
+    shopping: [],
+    settings: {
+      theme: meta.theme || localStorage.getItem('lunorka_theme') || 'dark',
+      lang: meta.lang || localStorage.getItem('lunorka_lang') || 'ru',
+    },
+  };
+  applyTheme(data.settings.theme);
+  localStorage.setItem('lunorka_lang', data.settings.lang);
+  await loadUserData();
+  await migrateOrSeed();
 }
 
-function logout() {
+async function updateUserMeta(patch) {
+  Object.assign(currentUser.meta, patch);
+  await sb.auth.updateUser({ data: currentUser.meta });
+}
+
+async function logout() {
+  await sb.auth.signOut();
   currentUser = null;
   data = null;
-  setSession(null);
   location.hash = '';
   renderAuth('login');
 }
@@ -422,7 +497,7 @@ function renderShell(activePage, viewHtml) {
     <nav class="bottom-nav">
       ${navBtn('recipes', '📖', t('navRecipes'))}
       ${navBtn('favorites', '⭐', t('navFav'))}
-      <div class="nav-fab-wrap"><button class="nav-fab" data-nav="#/add" aria-label="${t('navRecipes')}">+</button></div>
+      <div class="nav-fab-wrap"><button class="nav-fab" data-nav="#/add" aria-label="+">+</button></div>
       ${navBtn('shopping', '🛒', t('navShopping'))}
       ${navBtn('profile', '🧙', t('navProfile'))}
     </nav>`;
@@ -433,6 +508,8 @@ function renderShell(activePage, viewHtml) {
 
 /* ================= роутер ================= */
 function render() {
+  // ссылки из писем Supabase приходят с токеном в hash — их обрабатывает клиент Supabase
+  if (location.hash.includes('access_token') || location.hash.includes('type=recovery')) return;
   if (!currentUser) { renderAuth('login'); return; }
   const parts = (location.hash || '#/recipes').replace(/^#\//, '').split('/');
   const page = parts[0] || 'recipes';
@@ -535,13 +612,14 @@ function viewRecipes(mode) {
   draw();
 }
 
-function toggleFavorite(id) {
+async function toggleFavorite(id) {
   const r = data.recipes.find(x => x.id === id);
   if (!r) return;
   r.favorite = !r.favorite;
-  saveData();
   toast(r.favorite ? t('favAdded') : t('favRemoved'));
   render();
+  const { error } = await sb.from('recipes').update({ favorite: r.favorite }).eq('id', id);
+  if (error) { r.favorite = !r.favorite; render(); toast(t('errGeneric')); }
 }
 
 /* ================= добавить / редактировать рецепт ================= */
@@ -654,7 +732,7 @@ function viewRecipeForm(id) {
 
   $('#cancel-btn').addEventListener('click', () => history.back());
 
-  $('#recipe-form').addEventListener('submit', (e) => {
+  $('#recipe-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const name = (fd.get('name') || '').trim();
@@ -670,8 +748,7 @@ function viewRecipeForm(id) {
       .map(ta => ta.value.trim())
       .filter(Boolean);
 
-    const recipe = {
-      id: r ? r.id : uid(),
+    const payload = {
       name,
       photo: photoData,
       emoji: r?.emoji || '',
@@ -680,19 +757,26 @@ function viewRecipeForm(id) {
       servings: Math.max(1, parseInt(fd.get('servings'), 10) || 1),
       ingredients,
       steps,
-      favorite: r ? r.favorite : false,
-      createdAt: r ? r.createdAt : Date.now(),
     };
 
+    const submitBtn = $('button[type="submit"]', e.target);
+    submitBtn.disabled = true;
+
     if (r) {
-      const idx = data.recipes.findIndex(x => x.id === r.id);
-      data.recipes[idx] = recipe;
+      const { error } = await sb.from('recipes').update(payload).eq('id', r.id);
+      submitBtn.disabled = false;
+      if (error) { toast(t('errGeneric')); return; }
+      Object.assign(r, payload);
+      toast(t('savedToast'));
+      navigate('#/recipe/' + r.id);
     } else {
-      data.recipes.push(recipe);
+      const { data: inserted, error } = await sb.from('recipes').insert(payload).select().single();
+      submitBtn.disabled = false;
+      if (error) { toast(t('errGeneric')); return; }
+      data.recipes.unshift(rowToRecipe(inserted));
+      toast(t('savedToast'));
+      navigate('#/recipe/' + inserted.id);
     }
-    saveData();
-    toast(t('savedToast'));
-    navigate('#/recipe/' + recipe.id);
   });
 }
 
@@ -724,7 +808,7 @@ function viewRecipeDetail(id) {
     <div class="detail-section card">
       <h3>${t('ingredients')}</h3>
       <ul class="ing-list">
-        ${r.ingredients.map(i => `<li><span>${esc(i.name)}</span><span class="ing-amt">${esc(i.amount)}</span></li>`).join('') || `<li>${t('emptyAll')}</li>`}
+        ${r.ingredients.map(i => `<li><span>${esc(i.name)}</span><span class="ing-amt">${esc(i.amount)}</span></li>`).join('')}
       </ul>
     </div>
     <div class="detail-section card">
@@ -737,18 +821,20 @@ function viewRecipeDetail(id) {
   $('#back-btn').addEventListener('click', () => history.back());
   $('#fav-btn').addEventListener('click', () => toggleFavorite(r.id));
   $('#edit-btn').addEventListener('click', () => navigate('#/edit/' + r.id));
-  $('#del-btn').addEventListener('click', () => {
+  $('#del-btn').addEventListener('click', async () => {
     if (!confirm(t('delConfirm'))) return;
+    const { error } = await sb.from('recipes').delete().eq('id', r.id);
+    if (error) { toast(t('errGeneric')); return; }
     data.recipes = data.recipes.filter(x => x.id !== r.id);
-    saveData();
     toast(t('deletedToast'));
     navigate('#/recipes');
   });
-  $('#to-shopping').addEventListener('click', () => {
-    r.ingredients.forEach(i => {
-      data.shopping.push({ id: uid(), name: i.name, amount: i.amount, done: false, from: r.name });
-    });
-    saveData();
+  $('#to-shopping').addEventListener('click', async () => {
+    if (!r.ingredients.length) return;
+    const rows = r.ingredients.map(i => ({ name: i.name, amount: i.amount || '', from_name: r.name }));
+    const { data: inserted, error } = await sb.from('shopping_items').insert(rows).select();
+    if (error) { toast(t('errGeneric')); return; }
+    data.shopping.push(...inserted.map(rowToItem));
     toast(t('addedToShopping'));
   });
 }
@@ -790,37 +876,42 @@ function viewShopping() {
         <button class="icon-btn" data-del="${i.id}">✕</button>
       </div>`).join('');
 
-    $$('[data-check]', list).forEach(b => b.addEventListener('click', () => {
+    $$('[data-check]', list).forEach(b => b.addEventListener('click', async () => {
       const item = items.find(x => x.id === b.dataset.check);
       item.done = !item.done;
-      saveData();
       viewShopping();
+      const { error } = await sb.from('shopping_items').update({ done: item.done }).eq('id', item.id);
+      if (error) { item.done = !item.done; viewShopping(); toast(t('errGeneric')); }
     }));
-    $$('[data-del]', list).forEach(b => b.addEventListener('click', () => {
+    $$('[data-del]', list).forEach(b => b.addEventListener('click', async () => {
+      const { error } = await sb.from('shopping_items').delete().eq('id', b.dataset.del);
+      if (error) { toast(t('errGeneric')); return; }
       data.shopping = data.shopping.filter(x => x.id !== b.dataset.del);
-      saveData();
       viewShopping();
     }));
   };
   drawList();
 
-  $('#shop-add-form').addEventListener('submit', (e) => {
+  $('#shop-add-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const input = $('#shop-add-input');
     const name = input.value.trim();
     if (!name) return;
-    data.shopping.push({ id: uid(), name, amount: '', done: false, from: '' });
-    saveData();
+    const { data: inserted, error } = await sb.from('shopping_items').insert({ name }).select().single();
+    if (error) { toast(t('errGeneric')); return; }
+    data.shopping.push(rowToItem(inserted));
     viewShopping();
   });
-  $('#clear-bought').addEventListener('click', () => {
+  $('#clear-bought').addEventListener('click', async () => {
+    const { error } = await sb.from('shopping_items').delete().eq('done', true);
+    if (error) { toast(t('errGeneric')); return; }
     data.shopping = data.shopping.filter(i => !i.done);
-    saveData();
     viewShopping();
   });
-  $('#clear-all').addEventListener('click', () => {
+  $('#clear-all').addEventListener('click', async () => {
+    const { error } = await sb.from('shopping_items').delete().not('id', 'is', null);
+    if (error) { toast(t('errGeneric')); return; }
     data.shopping = [];
-    saveData();
     viewShopping();
   });
 }
@@ -884,42 +975,41 @@ function viewProfile() {
 
     <button class="btn btn--ghost btn--block" id="logout-btn">${t('logout')}</button>`);
 
-  $('#save-name').addEventListener('click', () => {
+  $('#save-name').addEventListener('click', async () => {
     const name = $('#name-input').value.trim();
     if (!name) return;
     currentUser.name = name;
-    const users = getUsers();
-    const u = users.find(x => x.email === currentUser.email);
-    if (u) { u.name = name; saveUsers(users); }
+    await updateUserMeta({ name });
     toast(t('nameSaved'));
     viewProfile();
   });
 
-  $$('#theme-seg button').forEach(b => b.addEventListener('click', () => {
+  $$('#theme-seg button').forEach(b => b.addEventListener('click', async () => {
     data.settings.theme = b.dataset.theme;
     applyTheme(b.dataset.theme);
-    saveData();
     viewProfile();
+    await updateUserMeta({ theme: b.dataset.theme });
   }));
-  $$('#lang-seg button').forEach(b => b.addEventListener('click', () => {
+  $$('#lang-seg button').forEach(b => b.addEventListener('click', async () => {
     data.settings.lang = b.dataset.lang;
     localStorage.setItem('lunorka_lang', b.dataset.lang);
     document.documentElement.lang = b.dataset.lang;
-    saveData();
     viewProfile();
+    await updateUserMeta({ lang: b.dataset.lang });
   }));
 
-  $('#pass-form').addEventListener('submit', (e) => {
+  $('#pass-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const errEl = $('#pass-error');
-    const users = getUsers();
-    const u = users.find(x => x.email === currentUser.email);
-    if (!fd.get('current') || !fd.get('next')) { errEl.textContent = t('errFill'); return; }
-    if (u.passHash !== simpleHash(fd.get('current'))) { errEl.textContent = t('errWrongCurrent'); return; }
-    if (fd.get('next').length < 4) { errEl.textContent = t('errShortPass'); return; }
-    u.passHash = simpleHash(fd.get('next'));
-    saveUsers(users);
+    const current = fd.get('current') || '';
+    const next = fd.get('next') || '';
+    if (!current || !next) { errEl.textContent = t('errFill'); return; }
+    if (next.length < 6) { errEl.textContent = t('errShortPass'); return; }
+    const { error: checkError } = await sb.auth.signInWithPassword({ email: currentUser.email, password: current });
+    if (checkError) { errEl.textContent = t('errWrongCurrent'); return; }
+    const { error } = await sb.auth.updateUser({ password: next });
+    if (error) { errEl.textContent = t('errGeneric'); return; }
     e.target.reset();
     errEl.textContent = '';
     toast(t('passwordChanged'));
@@ -929,15 +1019,25 @@ function viewProfile() {
 }
 
 /* ================= запуск ================= */
-makeStars();
-applyTheme(localStorage.getItem('lunorka_theme') || 'dark');
-document.documentElement.lang = getLang();
+sb.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    renderAuth('newpass');
+  } else if (event === 'SIGNED_OUT') {
+    currentUser = null;
+    data = null;
+    location.hash = '';
+    renderAuth('login');
+  }
+});
 
-const sessionEmail = getSession();
-if (sessionEmail) {
-  const user = getUsers().find(u => u.email === sessionEmail);
-  if (user) loginAs(user);
-}
+(async function init() {
+  makeStars();
+  applyTheme(localStorage.getItem('lunorka_theme') || 'dark');
+  document.documentElement.lang = getLang();
 
-window.addEventListener('hashchange', render);
-render();
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) await loginAs(session.user);
+
+  window.addEventListener('hashchange', render);
+  render();
+})();
