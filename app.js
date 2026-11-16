@@ -319,7 +319,7 @@ function makeStars() {
 /* ================= слой данных (Supabase) ================= */
 function rowToRecipe(r) {
   return {
-    id: r.id, name: r.name, photo: r.photo || '', emoji: r.emoji || '',
+    id: r.id, name: r.name, photo: r.photo ?? null, emoji: r.emoji || '',
     description: r.description || '', tags: r.tags || [],
     category: r.category, time: r.time, servings: r.servings,
     ingredients: r.ingredients || [], steps: r.steps || [],
@@ -335,7 +335,7 @@ function rowToMenu(m) {
 
 async function loadUserData() {
   const run = () => Promise.all([
-    sb.from('recipes').select('*').order('created_at', { ascending: false }),
+    sb.from('recipes').select('id,name,emoji,description,tags,category,time,servings,ingredients,steps,favorite,created_at').order('created_at', { ascending: false }),
     sb.from('shopping_items').select('*').order('created_at', { ascending: true }),
     sb.from('menus').select('*').order('created_at', { ascending: false }),
   ]);
@@ -750,6 +750,61 @@ async function toggleFavorite(id) {
   if (error) { r.favorite = !r.favorite; render(); toast(t('errGeneric')); }
 }
 
+/* ================= фото: сжатие и ленивая загрузка ================= */
+/* Фото в списке рецептов не грузятся — только при открытии рецепта.
+   При загрузке сжимаются до 1000px JPEG (~100–200 КБ вместо мегабайт),
+   старые тяжёлые фото сжимаются автоматически при первом открытии. */
+function compressImage(img, maxSide = 1000, quality = 0.8) {
+  let { width, height } = img;
+  if (width > maxSide || height > maxSide) {
+    const k = maxSide / Math.max(width, height);
+    width = Math.round(width * k);
+    height = Math.round(height * k);
+  }
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  c.getContext('2d').drawImage(img, 0, 0, width, height);
+  return c.toDataURL('image/jpeg', quality);
+}
+
+function compressImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const result = compressImage(img);
+      URL.revokeObjectURL(img.src);
+      resolve(result);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+function compressDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(compressImage(img));
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+async function ensureRecipePhoto(r) {
+  if (r.photo !== null && r.photo !== undefined) return;
+  const { data: row, error } = await sb.from('recipes').select('photo').eq('id', r.id).single();
+  r.photo = error ? '' : (row?.photo || '');
+  if (r.photo.length > 600000) {
+    try {
+      const small = await compressDataUrl(r.photo);
+      if (small.length < r.photo.length * 0.9) {
+        r.photo = small;
+        await sb.from('recipes').update({ photo: small }).eq('id', r.id);
+      }
+    } catch { /* оставляем оригинал */ }
+  }
+}
+
 /* ================= добавить / редактировать рецепт ================= */
 function ingRowHtml(ing = { name: '', amount: '' }) {
   return `
@@ -774,6 +829,11 @@ function renumberSteps() {
 function viewRecipeForm(id) {
   const r = id ? data.recipes.find(x => x.id === id) : null;
   if (id && !r) { navigate('#/recipes'); return; }
+  if (r && (r.photo === null || r.photo === undefined)) {
+    renderShell('recipes', `<div class="empty"><span class="empty-moon">🌙</span></div>`);
+    ensureRecipePhoto(r).then(() => viewRecipeForm(id));
+    return;
+  }
   const draft = r || {
     name: '', photo: '', description: '', tags: [], category: 'mains', time: 30, servings: 2,
     ingredients: [{ name: '', amount: '' }],
@@ -881,16 +941,17 @@ function viewRecipeForm(id) {
   const picker = $('#photo-picker');
   const fileInput = $('#photo-input');
   picker.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', () => {
+  fileInput.addEventListener('change', async () => {
     const file = fileInput.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      photoData = reader.result;
-      picker.innerHTML = `<img src="${photoData}" alt=""><span class="ph-hint">${t('photoChange')}</span>`;
-      picker.appendChild(fileInput);
-    };
-    reader.readAsDataURL(file);
+    try {
+      photoData = await compressImageFile(file);
+    } catch {
+      toast(t('errGeneric'));
+      return;
+    }
+    picker.innerHTML = `<img src="${photoData}" alt=""><span class="ph-hint">${t('photoChange')}</span>`;
+    picker.appendChild(fileInput);
   });
 
   const bindRowDel = (container) => {
@@ -968,6 +1029,11 @@ function viewRecipeForm(id) {
 function viewRecipeDetail(id) {
   const r = data.recipes.find(x => x.id === id);
   if (!r) { navigate('#/recipes'); return; }
+  if (r.photo === null || r.photo === undefined) {
+    ensureRecipePhoto(r).then(() => {
+      if ((location.hash || '').includes(r.id)) render();
+    });
+  }
 
   const hero = r.photo
     ? `<img src="${r.photo}" alt="${esc(r.name)}">`
