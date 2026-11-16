@@ -7,6 +7,8 @@ create table if not exists public.recipes (
   name text not null,
   photo text default '',
   emoji text default '',
+  description text default '',
+  tags jsonb default '[]'::jsonb,
   category text default 'mains',
   time int default 30,
   servings int default 2,

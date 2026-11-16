@@ -76,6 +76,12 @@ const I18N = {
     cat_snacks: 'Закуски', cat_baking: 'Выпечка',
     addTitle: 'Новый рецепт', editTitle: 'Редактировать рецепт',
     dishName: 'Название блюда', dishNamePh: 'Например, «Лунный суп»',
+    description: 'Описание', descriptionPh: 'Пара слов о блюде — настроение, история, секреты...',
+    tags: 'Теги', tagCustomPh: 'Свой тег...',
+    tag_russian: 'Русская кухня', tag_georgian: 'Грузинская кухня', tag_italian: 'Итальянская кухня',
+    tag_french: 'Французская кухня', tag_ukrainian: 'Украинская кухня', tag_asian: 'Азиатская кухня',
+    tag_japanese: 'Японская кухня', tag_mexican: 'Мексиканская кухня', tag_homestyle: 'Домашняя кухня',
+    tag_vegetarian: 'Вегетарианское', tag_vegan: 'Веганское', tag_quick: 'Быстрое',
     photo: 'Фотография', photoHint: 'Нажмите, чтобы загрузить фото', photoChange: 'Нажмите, чтобы заменить фото',
     category: 'Категория', time: 'Время приготовления (мин)', servingsN: 'Количество порций',
     ingredients: 'Ингредиенты', ingredientPh: 'Ингредиент', amountPh: 'Количество',
@@ -137,6 +143,12 @@ const I18N = {
     cat_snacks: 'Snacks', cat_baking: 'Baking',
     addTitle: 'New recipe', editTitle: 'Edit recipe',
     dishName: 'Dish name', dishNamePh: 'E.g. "Moon Soup"',
+    description: 'Description', descriptionPh: 'A few words about the dish — mood, story, secrets...',
+    tags: 'Tags', tagCustomPh: 'Custom tag...',
+    tag_russian: 'Russian cuisine', tag_georgian: 'Georgian cuisine', tag_italian: 'Italian cuisine',
+    tag_french: 'French cuisine', tag_ukrainian: 'Ukrainian cuisine', tag_asian: 'Asian cuisine',
+    tag_japanese: 'Japanese cuisine', tag_mexican: 'Mexican cuisine', tag_homestyle: 'Homestyle',
+    tag_vegetarian: 'Vegetarian', tag_vegan: 'Vegan', tag_quick: 'Quick',
     photo: 'Photo', photoHint: 'Click to upload a photo', photoChange: 'Click to change the photo',
     category: 'Category', time: 'Cooking time (min)', servingsN: 'Servings',
     ingredients: 'Ingredients', ingredientPh: 'Ingredient', amountPh: 'Amount',
@@ -166,6 +178,10 @@ const I18N = {
 };
 
 const CATEGORIES = ['breakfasts', 'soups', 'salads', 'mains', 'desserts', 'drinks', 'snacks', 'baking'];
+const BUILT_IN_TAGS = [
+  'tag_russian', 'tag_georgian', 'tag_italian', 'tag_french', 'tag_ukrainian', 'tag_asian',
+  'tag_japanese', 'tag_mexican', 'tag_homestyle', 'tag_vegetarian', 'tag_vegan', 'tag_quick',
+];
 
 function getLang() {
   return (currentUser && data?.settings?.lang) || localStorage.getItem('lunorka_lang') || 'ru';
@@ -273,6 +289,7 @@ function makeStars() {
 function rowToRecipe(r) {
   return {
     id: r.id, name: r.name, photo: r.photo || '', emoji: r.emoji || '',
+    description: r.description || '', tags: r.tags || [],
     category: r.category, time: r.time, servings: r.servings,
     ingredients: r.ingredients || [], steps: r.steps || [],
     favorite: !!r.favorite, createdAt: new Date(r.created_at).getTime(),
@@ -577,6 +594,8 @@ function viewRecipes(mode) {
     if (listState.category !== 'all') list = list.filter(r => r.category === listState.category);
     if (q) list = list.filter(r =>
       r.name.toLowerCase().includes(q) ||
+      (r.description || '').toLowerCase().includes(q) ||
+      (r.tags || []).some(tag => tag.toLowerCase().includes(q)) ||
       r.ingredients.some(i => i.name.toLowerCase().includes(q)));
 
     if (!list.length) {
@@ -647,11 +666,20 @@ function viewRecipeForm(id) {
   const r = id ? data.recipes.find(x => x.id === id) : null;
   if (id && !r) { navigate('#/recipes'); return; }
   const draft = r || {
-    name: '', photo: '', category: 'mains', time: 30, servings: 2,
+    name: '', photo: '', description: '', tags: [], category: 'mains', time: 30, servings: 2,
     ingredients: [{ name: '', amount: '' }],
     steps: [''],
   };
   let photoData = draft.photo || '';
+
+  // теги: встроенные (по ключам) и свои (строки)
+  const draftTags = draft.tags || [];
+  const builtinLabels = BUILT_IN_TAGS.flatMap(k => [I18N.ru[k], I18N.en[k]]);
+  const selectedBuiltin = new Set(BUILT_IN_TAGS.filter(k => draftTags.includes(I18N.ru[k]) || draftTags.includes(I18N.en[k])));
+  const customTags = new Set(draftTags.filter(tag => !builtinLabels.includes(tag)));
+
+  const customTagsHtml = () => [...customTags].map(tag =>
+    `<span class="chip active chip--tag">${esc(tag)}<button type="button" class="tag-x" data-tagx="${esc(tag)}">✕</button></span>`).join('');
 
   renderShell('recipes', `
     <h2 class="page-title">${r ? t('editTitle') : t('addTitle')}</h2>
@@ -669,10 +697,25 @@ function viewRecipeForm(id) {
         </div>
       </div>
       <div class="field">
+        <label>${t('description')}</label>
+        <textarea name="description" placeholder="${t('descriptionPh')}">${esc(draft.description || '')}</textarea>
+      </div>
+      <div class="field">
         <label>${t('category')}</label>
         <select name="category">
           ${CATEGORIES.map(c => `<option value="${c}" ${draft.category === c ? 'selected' : ''}>${t('cat_' + c)}</option>`).join('')}
         </select>
+      </div>
+      <div class="field">
+        <label>${t('tags')}</label>
+        <div class="chips chips--wrap" id="tags-preset">
+          ${BUILT_IN_TAGS.map(k => `<button type="button" class="chip ${selectedBuiltin.has(k) ? 'active' : ''}" data-tagkey="${k}">${t(k)}</button>`).join('')}
+        </div>
+        <div class="tag-custom-add">
+          <input id="tag-custom-input" placeholder="${t('tagCustomPh')}">
+          <button type="button" class="btn btn--small" id="tag-custom-btn">${t('add')}</button>
+        </div>
+        <div class="chips chips--wrap" id="tags-custom">${customTagsHtml()}</div>
       </div>
       <div class="field-row">
         <div class="field"><label>${t('time')}</label><input name="time" type="number" min="1" value="${draft.time}"></div>
@@ -695,6 +738,36 @@ function viewRecipeForm(id) {
     </form>`);
 
   renumberSteps();
+
+  $$('#tags-preset .chip').forEach(b => b.addEventListener('click', () => {
+    const k = b.dataset.tagkey;
+    if (selectedBuiltin.has(k)) { selectedBuiltin.delete(k); b.classList.remove('active'); }
+    else { selectedBuiltin.add(k); b.classList.add('active'); }
+  }));
+
+  const redrawCustomTags = () => {
+    const wrap = $('#tags-custom');
+    wrap.innerHTML = customTagsHtml();
+    $$('[data-tagx]', wrap).forEach(b => b.addEventListener('click', () => {
+      customTags.delete(b.dataset.tagx);
+      redrawCustomTags();
+    }));
+  };
+  redrawCustomTags();
+
+  const addCustomTag = () => {
+    const input = $('#tag-custom-input');
+    const value = input.value.trim();
+    if (!value) return;
+    customTags.add(value);
+    input.value = '';
+    redrawCustomTags();
+    input.focus();
+  };
+  $('#tag-custom-btn').addEventListener('click', addCustomTag);
+  $('#tag-custom-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addCustomTag(); }
+  });
 
   const picker = $('#photo-picker');
   const fileInput = $('#photo-input');
@@ -752,6 +825,8 @@ function viewRecipeForm(id) {
       name,
       photo: photoData,
       emoji: r?.emoji || '',
+      description: (fd.get('description') || '').trim(),
+      tags: [...selectedBuiltin].map(k => t(k)).concat([...customTags]),
       category: fd.get('category'),
       time: Math.max(1, parseInt(fd.get('time'), 10) || 1),
       servings: Math.max(1, parseInt(fd.get('servings'), 10) || 1),
@@ -800,6 +875,8 @@ function viewRecipeDetail(id) {
       <span>⏱ ${r.time} ${t('min')}</span>
       <span>🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}</span>
     </div>
+    ${r.description ? `<p class="detail-desc">${esc(r.description)}</p>` : ''}
+    ${r.tags && r.tags.length ? `<div class="chips chips--wrap detail-tags">${r.tags.map(tag => `<span class="chip chip--static">${esc(tag)}</span>`).join('')}</div>` : ''}
     <div class="detail-actions">
       <button class="btn" id="to-shopping">${t('toShopping')}</button>
       <button class="btn btn--ghost" id="edit-btn">${t('edit')}</button>
