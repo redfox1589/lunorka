@@ -918,6 +918,7 @@ textarea { resize: vertical; min-height: 60px; }
   opacity: 0.7;
   margin-top: 14px;
 }
+.debug-err { color: var(--danger); opacity: 0.9; }
 
 /* ---------- адаптив ---------- */@media (max-width: 560px) {
   .recipe-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }

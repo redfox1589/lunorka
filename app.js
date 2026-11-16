@@ -121,6 +121,7 @@ const I18N = {
     errNeedRecipes: 'Выберите хотя бы один рецепт',
     recipesForms: ['рецепт', 'рецепта', 'рецептов'],
     backToMenus: '← К списку меню',
+    retryBtn: '⟳ Повторить загрузку',
   },
   en: {
     tagline: 'A magical cookbook',
@@ -202,6 +203,7 @@ const I18N = {
     errNeedRecipes: 'Choose at least one recipe',
     recipesForms: ['recipe', 'recipes', 'recipes'],
     backToMenus: '← Back to menus',
+    retryBtn: '⟳ Retry loading',
   },
 };
 
@@ -339,11 +341,13 @@ async function loadUserData() {
   ]);
 
   let results = null;
+  let lastError = '';
   for (let attempt = 0; attempt < 3 && !results; attempt++) {
     try {
       const res = await run();
       if (res[0].error) {
         // ошибка ответа (например, протухший токен) — обновляем сессию и повторяем
+        lastError = `${res[0].error.code || ''} ${res[0].error.message || ''}`.trim();
         console.error('Загрузка не удалась, обновляю сессию:', res[0].error);
         await sb.auth.refreshSession();
         continue;
@@ -351,6 +355,7 @@ async function loadUserData() {
       results = res;
     } catch (e) {
       // сетевой сбой (fetch упал) — пауза и повторная попытка
+      lastError = String(e && e.message || e);
       console.error('Сбой сети при загрузке, повтор:', e);
       await new Promise(r => setTimeout(r, 800));
     }
@@ -363,7 +368,7 @@ async function loadUserData() {
   data.recipes = (recipesRes.data || []).map(rowToRecipe);
   data.shopping = (shoppingRes.data || []).map(rowToItem);
   data.menus = (menusRes.data || []).map(rowToMenu);
-  return !recipesRes.error && !shoppingRes.error;
+  return { ok: !recipesRes.error && !shoppingRes.error, error: results ? '' : lastError };
 }
 
 /* Первый вход нового пользователя: переносим старые данные из localStorage
@@ -538,16 +543,36 @@ async function loginAs(user) {
   };
   applyTheme(data.settings.theme);
   localStorage.setItem('lunorka_lang', data.settings.lang);
-  const loadOk = await loadUserData();
-  if (!loadOk) toast(t('errLoad'));
+  const loadRes = await loadUserData();
+  if (!loadRes.ok) {
+    toast(t('errLoad'));
+    // авто-повтор через несколько секунд — часто сбой кратковременный
+    setTimeout(() => retryLoad(), 4000);
+  }
   lastLoadInfo = {
     time: new Date().toLocaleTimeString(),
-    ok: loadOk,
+    ok: loadRes.ok,
+    error: loadRes.error,
     recipes: data.recipes.length,
     shopping: data.shopping.length,
     menus: data.menus.length,
   };
-  await migrateOrSeed(loadOk);
+  await migrateOrSeed(loadRes.ok);
+}
+
+async function retryLoad() {
+  if (!currentUser) return;
+  const loadRes = await loadUserData();
+  lastLoadInfo = {
+    time: new Date().toLocaleTimeString(),
+    ok: loadRes.ok,
+    error: loadRes.error,
+    recipes: data.recipes.length,
+    shopping: data.shopping.length,
+    menus: data.menus.length,
+  };
+  if (!loadRes.ok) toast(t('errLoad'));
+  render();
 }
 
 async function updateUserMeta(patch) {
@@ -681,7 +706,10 @@ function viewRecipes(mode) {
     if (!list.length) {
       const msg = q || listState.category !== 'all' ? t('nothingFound')
         : listState.tab === 'fav' ? t('emptyFav') : t('emptyAll');
-      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><span class="empty-moon">🌘</span>${msg}</div>`;
+      const failed = !q && listState.category === 'all' && listState.tab === 'all' && lastLoadInfo && !lastLoadInfo.ok;
+      grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><span class="empty-moon">🌘</span>${msg}
+        ${failed ? `<br><button class="btn btn--small" id="retry-load-btn" style="margin-top:16px">${t('retryBtn')}</button>` : ''}</div>`;
+      $('#retry-load-btn')?.addEventListener('click', retryLoad);
       return;
     }
     grid.innerHTML = list.map(recipeCardHtml).join('');
@@ -1540,7 +1568,7 @@ function viewProfile() {
     </div>
 
     <button class="btn btn--ghost btn--block" id="logout-btn">${t('logout')}</button>
-    ${lastLoadInfo ? `<div class="debug-line">⚙ ${lastLoadInfo.time} · ${lastLoadInfo.ok ? 'ok' : 'error'} · r${lastLoadInfo.recipes}/s${lastLoadInfo.shopping}/m${lastLoadInfo.menus} · ${currentUser.id.slice(0, 8)}</div>` : ''}`);
+    ${lastLoadInfo ? `<div class="debug-line">⚙ ${lastLoadInfo.time} · ${lastLoadInfo.ok ? 'ok' : 'error'} · r${lastLoadInfo.recipes}/s${lastLoadInfo.shopping}/m${lastLoadInfo.menus} · ${currentUser.id.slice(0, 8)}${lastLoadInfo.error ? `<br><span class="debug-err">${esc(lastLoadInfo.error.slice(0, 120))}</span>` : ''}</div>` : ''}`);
 
   $('#save-name').addEventListener('click', async () => {
     const name = $('#name-input').value.trim();
