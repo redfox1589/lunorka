@@ -59,6 +59,7 @@ const I18N = {
     errWrongPass: 'Неверная почта или пароль',
     errShortPass: 'Пароль должен быть не короче 6 символов',
     errGeneric: 'Что-то пошло не так. Попробуйте ещё раз.',
+    errLoad: 'Не удалось загрузить данные. Проверьте интернет и обновите страницу.',
     welcomeBack: 'С возвращением, {name}!',
     accountCreated: 'Добро пожаловать в Lunorka, {name}!',
     passwordChanged: 'Пароль изменён',
@@ -139,6 +140,7 @@ const I18N = {
     errWrongPass: 'Wrong email or password',
     errShortPass: 'Password must be at least 6 characters',
     errGeneric: 'Something went wrong. Please try again.',
+    errLoad: 'Could not load your data. Check the connection and refresh the page.',
     welcomeBack: 'Welcome back, {name}!',
     accountCreated: 'Welcome to Lunorka, {name}!',
     passwordChanged: 'Password changed',
@@ -329,11 +331,21 @@ function rowToMenu(m) {
 }
 
 async function loadUserData() {
-  const [recipesRes, shoppingRes, menusRes] = await Promise.all([
+  const run = () => Promise.all([
     sb.from('recipes').select('*').order('created_at', { ascending: false }),
     sb.from('shopping_items').select('*').order('created_at', { ascending: true }),
     sb.from('menus').select('*').order('created_at', { ascending: false }),
   ]);
+
+  let [recipesRes, shoppingRes, menusRes] = await run();
+
+  // если токен протух — принудительно обновляем сессию и пробуем ещё раз
+  if (recipesRes.error) {
+    console.error('Первая попытка загрузки не удалась, обновляю сессию:', recipesRes.error);
+    await sb.auth.refreshSession();
+    [recipesRes, shoppingRes, menusRes] = await run();
+  }
+
   if (recipesRes.error) console.error(recipesRes.error);
   if (shoppingRes.error) console.error(shoppingRes.error);
   if (menusRes.error) console.error(menusRes.error);
@@ -516,6 +528,7 @@ async function loginAs(user) {
   applyTheme(data.settings.theme);
   localStorage.setItem('lunorka_lang', data.settings.lang);
   const loadOk = await loadUserData();
+  if (!loadOk) toast(t('errLoad'));
   await migrateOrSeed(loadOk);
 }
 
