@@ -1026,24 +1026,63 @@ async function exportRecipePdf(r) {
     const pageH = pdf.internal.pageSize.getHeight();
     const margin = 24;
     const imgW = pageW - margin * 2;
-    const imgH = canvas.height * imgW / canvas.width;
-    const imgData = canvas.toDataURL('image/jpeg', 0.95);
 
-    let heightLeft = imgH;
-    let position = margin;
-    pdf.addImage(imgData, 'JPEG', margin, position, imgW, imgH);
-    heightLeft -= (pageH - margin * 2);
-    while (heightLeft > 0) {
-      pdf.addPage();
-      position -= (pageH - margin * 2);
-      pdf.addImage(imgData, 'JPEG', margin, position, imgW, imgH);
-      heightLeft -= (pageH - margin * 2);
+    // высота одной страницы в пикселях исходного canvas
+    const sliceH = Math.floor((pageH - margin * 2) * canvas.width / imgW);
+    const cuts = findCleanCuts(canvas, sliceH);
+
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const y0 = cuts[i];
+      const h = cuts[i + 1] - y0;
+      const slice = document.createElement('canvas');
+      slice.width = canvas.width;
+      slice.height = h;
+      slice.getContext('2d').drawImage(canvas, 0, y0, canvas.width, h, 0, 0, canvas.width, h);
+      const sliceImgH = h * imgW / canvas.width;
+      if (i > 0) pdf.addPage();
+      pdf.addImage(slice.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, imgW, sliceImgH);
     }
     pdf.save(safeFileName(r.name) + '.pdf');
   } catch (err) {
     console.error(err);
     toast(t('errGeneric'));
   }
+}
+
+/* Точки разрыва страниц: рядом с идеальной границей ищем полностью
+   пустую строку фона, чтобы не резать текст посередине. */
+function findCleanCuts(canvas, sliceH) {
+  const ctx = canvas.getContext('2d');
+  const { width, height } = canvas;
+  const bg = [250, 239, 223]; // #FAEFDF
+  const maxScan = Math.min(300, Math.floor(sliceH * 0.2));
+  const cuts = [0];
+
+  const isBlankRow = (y) => {
+    const row = ctx.getImageData(0, y, width, 1).data;
+    for (let x = 0; x < width; x += 5) {
+      const i = x * 4;
+      if (Math.abs(row[i] - bg[0]) > 12 || Math.abs(row[i + 1] - bg[1]) > 12 || Math.abs(row[i + 2] - bg[2]) > 12) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  let y = sliceH;
+  while (y < height) {
+    let cut = y;
+    for (let dy = 0; dy <= maxScan; dy++) {
+      if (y - dy > cuts[cuts.length - 1] && isBlankRow(y - dy)) { cut = y - dy; break; }
+      if (y + dy < height && isBlankRow(y + dy)) { cut = y + dy; break; }
+    }
+    // не допускаем слишком коротких хвостов
+    if (height - cut < sliceH * 0.08) break;
+    cuts.push(cut);
+    y = cut + sliceH;
+  }
+  cuts.push(height);
+  return cuts;
 }
 
 function recipePlainText(r) {
