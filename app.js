@@ -221,7 +221,8 @@ function t(key) {
 
 /* ================= состояние ================= */
 let currentUser = null; // {id, email, name, meta}
-let data = null;        // {recipes, shopping, settings:{theme, lang}}
+let data = null;        // {recipes, shopping, menus, settings:{theme, lang}}
+let lastLoadInfo = null; // диагностика последней загрузки (показывается в профиле)
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
@@ -539,6 +540,13 @@ async function loginAs(user) {
   localStorage.setItem('lunorka_lang', data.settings.lang);
   const loadOk = await loadUserData();
   if (!loadOk) toast(t('errLoad'));
+  lastLoadInfo = {
+    time: new Date().toLocaleTimeString(),
+    ok: loadOk,
+    recipes: data.recipes.length,
+    shopping: data.shopping.length,
+    menus: data.menus.length,
+  };
   await migrateOrSeed(loadOk);
 }
 
@@ -1531,7 +1539,8 @@ function viewProfile() {
       </form>
     </div>
 
-    <button class="btn btn--ghost btn--block" id="logout-btn">${t('logout')}</button>`);
+    <button class="btn btn--ghost btn--block" id="logout-btn">${t('logout')}</button>
+    ${lastLoadInfo ? `<div class="debug-line">⚙ ${lastLoadInfo.time} · ${lastLoadInfo.ok ? 'ok' : 'error'} · r${lastLoadInfo.recipes}/s${lastLoadInfo.shopping}/m${lastLoadInfo.menus} · ${currentUser.id.slice(0, 8)}</div>` : ''}`);
 
   $('#save-name').addEventListener('click', async () => {
     const name = $('#name-input').value.trim();
