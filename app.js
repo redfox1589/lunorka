@@ -90,6 +90,10 @@ const I18N = {
     save: 'Сохранить', cancel: 'Отмена',
     savedToast: 'Рецепт сохранён', errNeedName: 'Укажите название блюда',
     toShopping: '🛒 В покупки', edit: '✏️ Изменить', del: '🗑 Удалить',
+    exportPdf: '📄 PDF', exportPng: '🖼 PNG', exportJpg: '🖼 JPG',
+    copyText: '📋 Скопировать', printBtn: '🖨 Печать',
+    copiedToast: 'Рецепт скопирован в буфер обмена',
+    prepFile: 'Готовлю файл...',
     delConfirm: 'Удалить рецепт безвозвратно?',
     addedToShopping: 'Ингредиенты добавлены в покупки',
     deletedToast: 'Рецепт удалён',
@@ -157,6 +161,10 @@ const I18N = {
     save: 'Save', cancel: 'Cancel',
     savedToast: 'Recipe saved', errNeedName: 'Please enter the dish name',
     toShopping: '🛒 To shopping list', edit: '✏️ Edit', del: '🗑 Delete',
+    exportPdf: '📄 PDF', exportPng: '🖼 PNG', exportJpg: '🖼 JPG',
+    copyText: '📋 Copy', printBtn: '🖨 Print',
+    copiedToast: 'Recipe copied to clipboard',
+    prepFile: 'Preparing the file...',
     delConfirm: 'Delete this recipe permanently?',
     addedToShopping: 'Ingredients added to the shopping list',
     deletedToast: 'Recipe deleted',
@@ -891,6 +899,13 @@ function viewRecipeDetail(id) {
       <button class="btn btn--ghost" id="edit-btn">${t('edit')}</button>
       <button class="btn btn--danger" id="del-btn">${t('del')}</button>
     </div>
+    <div class="detail-actions">
+      <button class="btn btn--ghost btn--small" id="exp-pdf">${t('exportPdf')}</button>
+      <button class="btn btn--ghost btn--small" id="exp-png">${t('exportPng')}</button>
+      <button class="btn btn--ghost btn--small" id="exp-jpg">${t('exportJpg')}</button>
+      <button class="btn btn--ghost btn--small" id="copy-btn">${t('copyText')}</button>
+      <button class="btn btn--ghost btn--small" id="print-btn">${t('printBtn')}</button>
+    </div>
     <div class="detail-section card">
       <h3>${t('ingredients')}</h3>
       <ul class="ing-list">
@@ -923,6 +938,152 @@ function viewRecipeDetail(id) {
     data.shopping.push(...inserted.map(rowToItem));
     toast(t('addedToShopping'));
   });
+
+  $('#exp-png').addEventListener('click', () => exportRecipeImage(r, 'png'));
+  $('#exp-jpg').addEventListener('click', () => exportRecipeImage(r, 'jpg'));
+  $('#exp-pdf').addEventListener('click', () => exportRecipePdf(r));
+  $('#copy-btn').addEventListener('click', () => copyRecipeText(r));
+  $('#print-btn').addEventListener('click', () => printRecipe(r));
+}
+
+/* ================= экспорт рецепта ================= */
+function exportCardHtml(r) {
+  return `
+    <div class="export-card">
+      <div class="ec-head"><img src="design/Lunorka_icon.svg" alt=""><span>Lunorka</span></div>
+      <h1 class="ec-title">${esc(r.name)}</h1>
+      ${r.photo ? `<img class="ec-photo" src="${r.photo}" alt="">` : ''}
+      <div class="ec-meta">📂 ${t('cat_' + r.category)}&nbsp;&nbsp;·&nbsp;&nbsp;⏱ ${r.time} ${t('min')}&nbsp;&nbsp;·&nbsp;&nbsp;🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}</div>
+      ${r.description ? `<p class="ec-desc">${esc(r.description)}</p>` : ''}
+      ${r.tags && r.tags.length ? `<div class="ec-tags">${r.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}
+      <h2 class="ec-h">${t('ingredients')}</h2>
+      <ul class="ec-ings">
+        ${r.ingredients.map(i => `<li><span>${esc(i.name)}</span><span class="ec-amt">${esc(i.amount)}</span></li>`).join('')}
+      </ul>
+      <h2 class="ec-h">${t('steps')}</h2>
+      <ol class="ec-steps">
+        ${r.steps.map(s => `<li>${esc(s)}</li>`).join('')}
+      </ol>
+      <div class="ec-foot">🌙 Lunorka — ${t('tagline')}</div>
+    </div>`;
+}
+
+function mountExportCard(r) {
+  const holder = document.createElement('div');
+  holder.className = 'export-holder';
+  holder.innerHTML = exportCardHtml(r);
+  document.body.appendChild(holder);
+  return holder;
+}
+
+function safeFileName(name) {
+  return name.replace(/[\\/:*?"<>|]/g, '').trim() || 'recipe';
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+async function renderRecipeCanvas(r) {
+  const holder = mountExportCard(r);
+  try {
+    return await html2canvas(holder.firstElementChild, {
+      scale: 2,
+      backgroundColor: '#FAEFDF',
+      useCORS: true,
+      logging: false,
+    });
+  } finally {
+    holder.remove();
+  }
+}
+
+async function exportRecipeImage(r, format) {
+  toast(t('prepFile'));
+  try {
+    const canvas = await renderRecipeCanvas(r);
+    const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    canvas.toBlob((blob) => {
+      if (blob) downloadBlob(blob, safeFileName(r.name) + '.' + format);
+      else toast(t('errGeneric'));
+    }, mime, 0.92);
+  } catch (err) {
+    console.error(err);
+    toast(t('errGeneric'));
+  }
+}
+
+async function exportRecipePdf(r) {
+  toast(t('prepFile'));
+  try {
+    const canvas = await renderRecipeCanvas(r);
+    const pdf = new window.jspdf.jsPDF('p', 'pt', 'a4');
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const margin = 24;
+    const imgW = pageW - margin * 2;
+    const imgH = canvas.height * imgW / canvas.width;
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
+
+    let heightLeft = imgH;
+    let position = margin;
+    pdf.addImage(imgData, 'JPEG', margin, position, imgW, imgH);
+    heightLeft -= (pageH - margin * 2);
+    while (heightLeft > 0) {
+      pdf.addPage();
+      position -= (pageH - margin * 2);
+      pdf.addImage(imgData, 'JPEG', margin, position, imgW, imgH);
+      heightLeft -= (pageH - margin * 2);
+    }
+    pdf.save(safeFileName(r.name) + '.pdf');
+  } catch (err) {
+    console.error(err);
+    toast(t('errGeneric'));
+  }
+}
+
+function recipePlainText(r) {
+  const lines = [];
+  lines.push(`🌙 ${r.name}`);
+  lines.push(`${t('cat_' + r.category)} · ${r.time} ${t('min')} · ${r.servings} ${plural(r.servings, t('servingsForms'))}`);
+  if (r.tags && r.tags.length) lines.push(`${t('tags')}: ${r.tags.join(', ')}`);
+  if (r.description) { lines.push(''); lines.push(r.description); }
+  lines.push('');
+  lines.push(`${t('ingredients')}:`);
+  r.ingredients.forEach(i => lines.push(`— ${i.name}${i.amount ? ' — ' + i.amount : ''}`));
+  lines.push('');
+  lines.push(`${t('steps')}:`);
+  r.steps.forEach((s, idx) => lines.push(`${idx + 1}. ${s}`));
+  lines.push('');
+  lines.push('🌙 Lunorka');
+  return lines.join('\n');
+}
+
+async function copyRecipeText(r) {
+  const text = recipePlainText(r);
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  toast(t('copiedToast'));
+}
+
+function printRecipe(r) {
+  const area = $('#print-area');
+  area.innerHTML = exportCardHtml(r);
+  window.print();
 }
 
 /* ================= список покупок ================= */

@@ -755,6 +755,95 @@ textarea { resize: vertical; min-height: 60px; }
 .settings-row:last-child { margin-bottom: 0; }
 .settings-row > label { display: block; font-size: 14px; color: var(--text-dim); margin-bottom: 8px; }
 
+/* ---------- экспорт и печать ---------- */
+.export-holder {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  pointer-events: none;
+}
+.export-card {
+  width: 720px;
+  background: #FAEFDF;
+  color: #382A46;
+  border-radius: 24px;
+  padding: 40px 44px;
+  font-family: var(--font-body);
+}
+.ec-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.ec-head img { height: 44px; width: auto; }
+.ec-head span {
+  font-family: var(--font-title);
+  font-size: 32px;
+  color: #6E5490;
+}
+.ec-title {
+  font-family: var(--font-head);
+  font-size: 38px;
+  font-weight: 700;
+  line-height: 1.15;
+  margin-bottom: 14px;
+}
+.ec-photo {
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  border-radius: 16px;
+  margin-bottom: 14px;
+}
+.ec-meta { font-size: 15px; color: #7A6A8C; margin-bottom: 10px; }
+.ec-desc { font-style: italic; color: #5c4a73; line-height: 1.6; margin-bottom: 12px; }
+.ec-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.ec-tags span {
+  border: 1px solid #BCA1D1;
+  color: #6E5490;
+  border-radius: 30px;
+  padding: 5px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.ec-h {
+  font-family: var(--font-head);
+  font-size: 24px;
+  color: #6E5490;
+  margin: 20px 0 10px;
+  border-bottom: 2px solid #BCA1D1;
+  padding-bottom: 6px;
+}
+.ec-ings { list-style: none; }
+.ec-ings li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 2px;
+  border-bottom: 1px dashed #d9c8b4;
+  font-size: 15px;
+}
+.ec-ings .ec-amt { color: #7A6A8C; white-space: nowrap; }
+.ec-steps { padding-left: 22px; }
+.ec-steps li { font-size: 15px; line-height: 1.6; padding: 5px 0; }
+.ec-foot {
+  margin-top: 26px;
+  text-align: center;
+  font-family: var(--font-head);
+  font-style: italic;
+  color: #8a7aa0;
+  font-size: 14px;
+}
+
+#print-area { display: none; }
+@media print {
+  body { background: #fff !important; }
+  #app, #stars, #toast, .bottom-nav, .export-holder { display: none !important; }
+  #print-area { display: block !important; }
+  #print-area .export-card { width: auto; border-radius: 0; padding: 10px; }
+}
+
 /* ---------- адаптив ---------- */
 @media (max-width: 560px) {
   .recipe-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
