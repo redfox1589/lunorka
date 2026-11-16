@@ -337,15 +337,25 @@ async function loadUserData() {
     sb.from('menus').select('*').order('created_at', { ascending: false }),
   ]);
 
-  let [recipesRes, shoppingRes, menusRes] = await run();
-
-  // если токен протух — принудительно обновляем сессию и пробуем ещё раз
-  if (recipesRes.error) {
-    console.error('Первая попытка загрузки не удалась, обновляю сессию:', recipesRes.error);
-    await sb.auth.refreshSession();
-    [recipesRes, shoppingRes, menusRes] = await run();
+  let results = null;
+  for (let attempt = 0; attempt < 3 && !results; attempt++) {
+    try {
+      const res = await run();
+      if (res[0].error) {
+        // ошибка ответа (например, протухший токен) — обновляем сессию и повторяем
+        console.error('Загрузка не удалась, обновляю сессию:', res[0].error);
+        await sb.auth.refreshSession();
+        continue;
+      }
+      results = res;
+    } catch (e) {
+      // сетевой сбой (fetch упал) — пауза и повторная попытка
+      console.error('Сбой сети при загрузке, повтор:', e);
+      await new Promise(r => setTimeout(r, 800));
+    }
   }
 
+  const [recipesRes, shoppingRes, menusRes] = results || [{ error: true }, { error: true }, { error: true }];
   if (recipesRes.error) console.error(recipesRes.error);
   if (shoppingRes.error) console.error(shoppingRes.error);
   if (menusRes.error) console.error(menusRes.error);
@@ -1584,8 +1594,13 @@ sb.auth.onAuthStateChange(async (event, session) => {
   }
   if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')
       && session?.user && !currentUser) {
-    await loginAs(session.user);
-    if (event === 'SIGNED_IN') toast(t('welcomeBack').replace('{name}', currentUser.name));
+    try {
+      await loginAs(session.user);
+      if (event === 'SIGNED_IN') toast(t('welcomeBack').replace('{name}', currentUser.name));
+    } catch (e) {
+      console.error('Ошибка входа в приложение:', e);
+      toast(t('errLoad'));
+    }
     render();
   }
 });
