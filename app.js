@@ -308,12 +308,13 @@ async function loadUserData() {
   if (shoppingRes.error) console.error(shoppingRes.error);
   data.recipes = (recipesRes.data || []).map(rowToRecipe);
   data.shopping = (shoppingRes.data || []).map(rowToItem);
+  return !recipesRes.error && !shoppingRes.error;
 }
 
 /* Первый вход нового пользователя: переносим старые данные из localStorage
    или сеем стартовые рецепты. Метка хранится в аккаунте на сервере,
    поэтому удалённые рецепты не восстанавливаются ни на каком устройстве. */
-async function migrateOrSeed() {
+async function migrateOrSeed(loadOk = true) {
   if (currentUser.meta.data_migrated) return;
 
   const isNewUser = Date.now() - new Date(currentUser.createdAt).getTime() < 10 * 60 * 1000;
@@ -339,7 +340,7 @@ async function migrateOrSeed() {
     imported = true;
   }
 
-  if (!imported && isNewUser && !data.recipes.length) {
+  if (!imported && isNewUser && !data.recipes.length && loadOk) {
     await sb.from('recipes').insert(seedRecipes());
   }
 
@@ -481,8 +482,8 @@ async function loginAs(user) {
   };
   applyTheme(data.settings.theme);
   localStorage.setItem('lunorka_lang', data.settings.lang);
-  await loadUserData();
-  await migrateOrSeed();
+  const loadOk = await loadUserData();
+  await migrateOrSeed(loadOk);
 }
 
 async function updateUserMeta(patch) {
@@ -1104,6 +1105,9 @@ function viewProfile() {
 }
 
 /* ================= запуск ================= */
+/* Единая точка входа — событие INITIAL_SESSION: оно приходит, когда клиент
+   уже восстановил и при необходимости обновил токен, так что запросы к базе
+   не упадут с просроченным токеном после обновления страницы. */
 sb.auth.onAuthStateChange(async (event, session) => {
   if (event === 'PASSWORD_RECOVERY') {
     renderAuth('newpass');
@@ -1116,21 +1120,18 @@ sb.auth.onAuthStateChange(async (event, session) => {
     renderAuth('login');
     return;
   }
-  if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user && !currentUser) {
+  if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED')
+      && session?.user && !currentUser) {
     await loginAs(session.user);
     if (event === 'SIGNED_IN') toast(t('welcomeBack').replace('{name}', currentUser.name));
     render();
   }
 });
 
-(async function init() {
+(function init() {
   makeStars();
   applyTheme(localStorage.getItem('lunorka_theme') || 'dark');
   document.documentElement.lang = getLang();
-
-  const { data: { session } } = await sb.auth.getSession();
-  if (session?.user && !currentUser) await loginAs(session.user);
-
   window.addEventListener('hashchange', render);
   render();
 })();
