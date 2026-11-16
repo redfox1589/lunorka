@@ -310,11 +310,14 @@ async function loadUserData() {
   data.shopping = (shoppingRes.data || []).map(rowToItem);
 }
 
-/* Первый вход: переносим старые данные из localStorage или сеем стартовые рецепты */
+/* Первый вход нового пользователя: переносим старые данные из localStorage
+   или сеем стартовые рецепты. Метка хранится в аккаунте на сервере,
+   поэтому удалённые рецепты не восстанавливаются ни на каком устройстве. */
 async function migrateOrSeed() {
-  if (data.recipes.length) return;
-  const flag = 'lunorka_migrated_' + currentUser.id;
-  if (localStorage.getItem(flag)) return;
+  if (currentUser.meta.data_migrated) return;
+
+  const isNewUser = Date.now() - new Date(currentUser.createdAt).getTime() < 10 * 60 * 1000;
+  let imported = false;
 
   let old = null;
   try { old = JSON.parse(localStorage.getItem('lunorka_data_' + currentUser.email)); } catch { /* ignore */ }
@@ -333,10 +336,14 @@ async function migrateOrSeed() {
       })));
     }
     localStorage.removeItem('lunorka_data_' + currentUser.email);
-  } else {
+    imported = true;
+  }
+
+  if (!imported && isNewUser && !data.recipes.length) {
     await sb.from('recipes').insert(seedRecipes());
   }
-  localStorage.setItem(flag, '1');
+
+  await updateUserMeta({ data_migrated: true });
   await loadUserData();
 }
 
@@ -460,6 +467,7 @@ async function loginAs(user) {
   currentUser = {
     id: user.id,
     email: user.email,
+    createdAt: user.created_at,
     name: meta.name || user.email.split('@')[0],
     meta,
   };
