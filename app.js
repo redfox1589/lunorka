@@ -111,6 +111,15 @@ const I18N = {
     errWrongCurrent: 'Неверный текущий пароль',
     saveName: 'Сохранить имя', nameSaved: 'Имя сохранено',
     logout: 'Выйти из аккаунта',
+    menus: 'Меню', menusTitle: 'Мои меню', newMenu: '+ Создать меню',
+    menuName: 'Название меню', menuNamePh: 'Например, «Меню на ужин»',
+    selectRecipes: 'Выберите рецепты', emptyMenus: 'Пока нет ни одного меню. Создайте первое!',
+    menuSaved: 'Меню сохранено', menuDeleted: 'Меню удалено',
+    delMenuConfirm: 'Удалить это меню? Рецепты останутся.',
+    errNeedMenuName: 'Укажите название меню',
+    errNeedRecipes: 'Выберите хотя бы один рецепт',
+    recipesForms: ['рецепт', 'рецепта', 'рецептов'],
+    backToMenus: '← К списку меню',
   },
   en: {
     tagline: 'A magical cookbook',
@@ -182,6 +191,15 @@ const I18N = {
     errWrongCurrent: 'Wrong current password',
     saveName: 'Save name', nameSaved: 'Name saved',
     logout: 'Sign out',
+    menus: 'Menus', menusTitle: 'My menus', newMenu: '+ Create menu',
+    menuName: 'Menu name', menuNamePh: 'E.g. "Dinner menu"',
+    selectRecipes: 'Choose recipes', emptyMenus: 'No menus yet. Create your first one!',
+    menuSaved: 'Menu saved', menuDeleted: 'Menu deleted',
+    delMenuConfirm: 'Delete this menu? The recipes will stay.',
+    errNeedMenuName: 'Please enter the menu name',
+    errNeedRecipes: 'Choose at least one recipe',
+    recipesForms: ['recipe', 'recipes', 'recipes'],
+    backToMenus: '← Back to menus',
   },
 };
 
@@ -306,16 +324,22 @@ function rowToRecipe(r) {
 function rowToItem(i) {
   return { id: i.id, name: i.name, amount: i.amount || '', done: !!i.done, from: i.from_name || '' };
 }
+function rowToMenu(m) {
+  return { id: m.id, name: m.name, recipeIds: m.recipe_ids || [], createdAt: new Date(m.created_at).getTime() };
+}
 
 async function loadUserData() {
-  const [recipesRes, shoppingRes] = await Promise.all([
+  const [recipesRes, shoppingRes, menusRes] = await Promise.all([
     sb.from('recipes').select('*').order('created_at', { ascending: false }),
     sb.from('shopping_items').select('*').order('created_at', { ascending: true }),
+    sb.from('menus').select('*').order('created_at', { ascending: false }),
   ]);
   if (recipesRes.error) console.error(recipesRes.error);
   if (shoppingRes.error) console.error(shoppingRes.error);
+  if (menusRes.error) console.error(menusRes.error);
   data.recipes = (recipesRes.data || []).map(rowToRecipe);
   data.shopping = (shoppingRes.data || []).map(rowToItem);
+  data.menus = (menusRes.data || []).map(rowToMenu);
   return !recipesRes.error && !shoppingRes.error;
 }
 
@@ -483,6 +507,7 @@ async function loginAs(user) {
   data = {
     recipes: [],
     shopping: [],
+    menus: [],
     settings: {
       theme: meta.theme || localStorage.getItem('lunorka_theme') || 'dark',
       lang: meta.lang || localStorage.getItem('lunorka_lang') || 'ru',
@@ -555,6 +580,10 @@ function render() {
     case 'add': viewRecipeForm(null); break;
     case 'edit': viewRecipeForm(arg); break;
     case 'recipe': viewRecipeDetail(arg); break;
+    case 'menus': viewMenus(); break;
+    case 'menu': viewMenuDetail(arg); break;
+    case 'menu-new': viewMenuForm(null); break;
+    case 'menu-edit': viewMenuForm(arg); break;
     case 'shopping': viewShopping(); break;
     case 'profile': viewProfile(); break;
     default: viewRecipes('all');
@@ -591,7 +620,10 @@ function recipeCardHtml(r) {
 function viewRecipes(mode) {
   if (mode === 'fav') listState.tab = 'fav';
   renderShell(mode === 'fav' ? 'favorites' : 'recipes', `
-    <h2 class="page-title">${mode === 'fav' ? t('favoritesTitle') : t('myRecipes')}</h2>
+    <div class="title-row">
+      <h2 class="page-title">${mode === 'fav' ? t('favoritesTitle') : t('myRecipes')}</h2>
+      <button class="btn btn--ghost btn--small" id="menus-btn">🗓 ${t('menus')}</button>
+    </div>
     <div class="search-box"><input id="search" type="search" placeholder="${t('searchPh')}" value="${esc(listState.search)}"></div>
     <div class="fav-toggle">
       <button data-tab="all" class="${listState.tab === 'all' ? 'active' : ''}">${t('all')}</button>
@@ -632,6 +664,7 @@ function viewRecipes(mode) {
   };
 
   $('#search').addEventListener('input', (e) => { listState.search = e.target.value; draw(); });
+  $('#menus-btn').addEventListener('click', () => navigate('#/menus'));
   $$('.fav-toggle [data-tab]').forEach(b =>
     b.addEventListener('click', () => {
       listState.tab = b.dataset.tab;
@@ -968,10 +1001,10 @@ function exportCardHtml(r) {
     </div>`;
 }
 
-function mountExportCard(r) {
+function mountExportHtml(html) {
   const holder = document.createElement('div');
   holder.className = 'export-holder';
-  holder.innerHTML = exportCardHtml(r);
+  holder.innerHTML = html;
   document.body.appendChild(holder);
   return holder;
 }
@@ -988,8 +1021,8 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
-async function renderRecipeCanvas(r) {
-  const holder = mountExportCard(r);
+async function renderExportCanvas(html) {
+  const holder = mountExportHtml(html);
   try {
     return await html2canvas(holder.firstElementChild, {
       scale: 2,
@@ -1002,13 +1035,13 @@ async function renderRecipeCanvas(r) {
   }
 }
 
-async function exportRecipeImage(r, format) {
+async function exportImage(html, filename, format) {
   toast(t('prepFile'));
   try {
-    const canvas = await renderRecipeCanvas(r);
+    const canvas = await renderExportCanvas(html);
     const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
     canvas.toBlob((blob) => {
-      if (blob) downloadBlob(blob, safeFileName(r.name) + '.' + format);
+      if (blob) downloadBlob(blob, filename + '.' + format);
       else toast(t('errGeneric'));
     }, mime, 0.92);
   } catch (err) {
@@ -1017,10 +1050,10 @@ async function exportRecipeImage(r, format) {
   }
 }
 
-async function exportRecipePdf(r) {
+async function exportPdf(html, filename) {
   toast(t('prepFile'));
   try {
-    const canvas = await renderRecipeCanvas(r);
+    const canvas = await renderExportCanvas(html);
     const pdf = new window.jspdf.jsPDF('p', 'pt', 'a4');
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
@@ -1042,11 +1075,18 @@ async function exportRecipePdf(r) {
       if (i > 0) pdf.addPage();
       pdf.addImage(slice.toDataURL('image/jpeg', 0.95), 'JPEG', margin, margin, imgW, sliceImgH);
     }
-    pdf.save(safeFileName(r.name) + '.pdf');
+    pdf.save(filename + '.pdf');
   } catch (err) {
     console.error(err);
     toast(t('errGeneric'));
   }
+}
+
+function exportRecipeImage(r, format) {
+  return exportImage(exportCardHtml(r), safeFileName(r.name), format);
+}
+function exportRecipePdf(r) {
+  return exportPdf(exportCardHtml(r), safeFileName(r.name));
 }
 
 /* Точки разрыва страниц: рядом с идеальной границей ищем полностью
@@ -1123,6 +1163,215 @@ function printRecipe(r) {
   const area = $('#print-area');
   area.innerHTML = exportCardHtml(r);
   window.print();
+}
+
+/* ================= меню ================= */
+function menuRecipes(m) {
+  return m.recipeIds.map(rid => data.recipes.find(r => r.id === rid)).filter(Boolean);
+}
+
+function viewMenus() {
+  renderShell('recipes', `
+    <h2 class="page-title">${t('menusTitle')}</h2>
+    <button class="btn btn--block" id="menu-new" style="margin-bottom:16px">${t('newMenu')}</button>
+    <div id="menus-list"></div>`);
+
+  $('#menu-new').addEventListener('click', () => navigate('#/menu-new'));
+
+  const list = $('#menus-list');
+  const menus = data.menus.slice().sort((a, b) => b.createdAt - a.createdAt);
+  if (!menus.length) {
+    list.innerHTML = `<div class="empty"><span class="empty-moon">🗓</span>${t('emptyMenus')}</div>`;
+    return;
+  }
+  list.innerHTML = menus.map(m => `
+    <div class="card menu-card" data-open="${m.id}">
+      <div class="menu-card-name">${esc(m.name)}</div>
+      <div class="recipe-meta"><span>🍽 ${m.recipeIds.length} ${plural(m.recipeIds.length, t('recipesForms'))}</span></div>
+    </div>`).join('');
+  $$('[data-open]', list).forEach(c =>
+    c.addEventListener('click', () => navigate('#/menu/' + c.dataset.open)));
+}
+
+function viewMenuForm(id) {
+  const m = id ? data.menus.find(x => x.id === id) : null;
+  if (id && !m) { navigate('#/menus'); return; }
+  const selected = new Set(m ? m.recipeIds : []);
+
+  renderShell('recipes', `
+    <h2 class="page-title">${m ? t('editTitle') : t('newMenu').replace('+ ', '')}</h2>
+    <div class="form-card card">
+      <div class="field">
+        <label>${t('menuName')}</label>
+        <input id="menu-name" placeholder="${t('menuNamePh')}" value="${esc(m?.name || '')}">
+      </div>
+      <div class="field">
+        <label>${t('selectRecipes')}</label>
+        <div id="menu-recipes"></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn--ghost" id="menu-cancel">${t('cancel')}</button>
+        <button class="btn" id="menu-save">${t('save')}</button>
+      </div>
+    </div>`);
+
+  const wrap = $('#menu-recipes');
+  const draw = () => {
+    if (!data.recipes.length) {
+      wrap.innerHTML = `<div class="empty">${t('emptyAll')}</div>`;
+      return;
+    }
+    wrap.innerHTML = data.recipes.map(r => `
+      <div class="menu-recipe-row ${selected.has(r.id) ? 'selected' : ''}" data-id="${r.id}">
+        <span class="menu-check">${selected.has(r.id) ? '✓' : ''}</span>
+        <span class="menu-rname">${recipeEmoji(r)} ${esc(r.name)}</span>
+        <span class="menu-rtime">⏱ ${r.time} ${t('min')}</span>
+      </div>`).join('');
+    $$('.menu-recipe-row', wrap).forEach(row => row.addEventListener('click', () => {
+      if (selected.has(row.dataset.id)) selected.delete(row.dataset.id);
+      else selected.add(row.dataset.id);
+      draw();
+    }));
+  };
+  draw();
+
+  $('#menu-cancel').addEventListener('click', () => history.back());
+  $('#menu-save').addEventListener('click', async () => {
+    const name = $('#menu-name').value.trim();
+    if (!name) { toast(t('errNeedMenuName')); return; }
+    if (!selected.size) { toast(t('errNeedRecipes')); return; }
+    const recipeIds = data.recipes.filter(r => selected.has(r.id)).map(r => r.id);
+
+    const btn = $('#menu-save');
+    btn.disabled = true;
+    if (m) {
+      const { error } = await sb.from('menus').update({ name, recipe_ids: recipeIds }).eq('id', m.id);
+      btn.disabled = false;
+      if (error) { toast(t('errGeneric')); return; }
+      m.name = name;
+      m.recipeIds = recipeIds;
+      toast(t('menuSaved'));
+      navigate('#/menu/' + m.id);
+    } else {
+      const { data: inserted, error } = await sb.from('menus').insert({ name, recipe_ids: recipeIds }).select().single();
+      btn.disabled = false;
+      if (error) { toast(t('errGeneric')); return; }
+      data.menus.unshift(rowToMenu(inserted));
+      toast(t('menuSaved'));
+      navigate('#/menu/' + inserted.id);
+    }
+  });
+}
+
+function viewMenuDetail(id) {
+  const m = data.menus.find(x => x.id === id);
+  if (!m) { navigate('#/menus'); return; }
+  const recipes = menuRecipes(m);
+
+  renderShell('recipes', `
+    <h2 class="detail-title">${esc(m.name)}</h2>
+    <div class="detail-meta"><span>🍽 ${recipes.length} ${plural(recipes.length, t('recipesForms'))}</span></div>
+    <div class="detail-actions">
+      <button class="btn btn--ghost btn--small" id="menu-back">${t('backToMenus')}</button>
+      <button class="btn btn--ghost btn--small" id="menu-edit">${t('edit')}</button>
+      <button class="btn btn--danger btn--small" id="menu-del">${t('del')}</button>
+    </div>
+    <div class="detail-actions">
+      <button class="btn btn--ghost btn--small" id="exp-pdf">${t('exportPdf')}</button>
+      <button class="btn btn--ghost btn--small" id="exp-png">${t('exportPng')}</button>
+      <button class="btn btn--ghost btn--small" id="exp-jpg">${t('exportJpg')}</button>
+      <button class="btn btn--ghost btn--small" id="copy-btn">${t('copyText')}</button>
+      <button class="btn btn--ghost btn--small" id="print-btn">${t('printBtn')}</button>
+    </div>
+    <div class="recipe-grid" id="menu-grid">
+      ${recipes.map(recipeCardHtml).join('')}
+    </div>`);
+
+  $('#menu-back').addEventListener('click', () => navigate('#/menus'));
+  $('#menu-edit').addEventListener('click', () => navigate('#/menu-edit/' + m.id));
+  $('#menu-del').addEventListener('click', async () => {
+    if (!confirm(t('delMenuConfirm'))) return;
+    const { error } = await sb.from('menus').delete().eq('id', m.id);
+    if (error) { toast(t('errGeneric')); return; }
+    data.menus = data.menus.filter(x => x.id !== m.id);
+    toast(t('menuDeleted'));
+    navigate('#/menus');
+  });
+
+  const grid = $('#menu-grid');
+  $$('[data-open]', grid).forEach(c =>
+    c.addEventListener('click', (e) => {
+      if (e.target.closest('[data-fav]')) return;
+      navigate('#/recipe/' + c.dataset.open);
+    }));
+  $$('[data-fav]', grid).forEach(b =>
+    b.addEventListener('click', () => toggleFavorite(b.dataset.fav)));
+
+  $('#exp-png').addEventListener('click', () => exportImage(exportMenuCardHtml(m, recipes), safeFileName(m.name), 'png'));
+  $('#exp-jpg').addEventListener('click', () => exportImage(exportMenuCardHtml(m, recipes), safeFileName(m.name), 'jpg'));
+  $('#exp-pdf').addEventListener('click', () => exportPdf(exportMenuCardHtml(m, recipes), safeFileName(m.name)));
+  $('#copy-btn').addEventListener('click', () => copyMenuText(m, recipes));
+  $('#print-btn').addEventListener('click', () => {
+    $('#print-area').innerHTML = exportMenuCardHtml(m, recipes);
+    window.print();
+  });
+}
+
+function exportMenuCardHtml(m, recipes) {
+  return `
+    <div class="export-card">
+      <div class="ec-head"><img src="design/Lunorka_icon.svg" alt=""><span>Lunorka</span></div>
+      <h1 class="ec-title">${esc(m.name)}</h1>
+      <div class="ec-meta">🍽 ${recipes.length} ${plural(recipes.length, t('recipesForms'))}</div>
+      ${recipes.map((r, i) => `
+        <h2 class="ec-h">${i + 1}. ${esc(r.name)}</h2>
+        <div class="ec-meta">📂 ${t('cat_' + r.category)}&nbsp;&nbsp;·&nbsp;&nbsp;⏱ ${r.time} ${t('min')}&nbsp;&nbsp;·&nbsp;&nbsp;🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}</div>
+        ${r.description ? `<p class="ec-desc">${esc(r.description)}</p>` : ''}
+        ${r.tags && r.tags.length ? `<div class="ec-tags">${r.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}
+        <h3 class="ec-sub">${t('ingredients')}</h3>
+        <ul class="ec-ings">
+          ${r.ingredients.map(ing => `<li><span>${esc(ing.name)}</span><span class="ec-amt">${esc(ing.amount)}</span></li>`).join('')}
+        </ul>
+        <h3 class="ec-sub">${t('steps')}</h3>
+        <ol class="ec-steps">
+          ${r.steps.map(s => `<li>${esc(s)}</li>`).join('')}
+        </ol>`).join('')}
+      <div class="ec-foot">🌙 Lunorka — ${t('tagline')}</div>
+    </div>`;
+}
+
+function menuPlainText(m, recipes) {
+  const lines = [];
+  lines.push(`🌙 ${m.name}`);
+  lines.push('');
+  recipes.forEach((r, i) => {
+    lines.push(`${i + 1}. ${r.name} (${r.time} ${t('min')}, ${r.servings} ${plural(r.servings, t('servingsForms'))})`);
+    if (r.description) lines.push(r.description);
+    lines.push(`   ${t('ingredients')}:`);
+    r.ingredients.forEach(ing => lines.push(`   — ${ing.name}${ing.amount ? ' — ' + ing.amount : ''}`));
+    lines.push(`   ${t('steps')}:`);
+    r.steps.forEach((s, idx) => lines.push(`   ${idx + 1}. ${s}`));
+    lines.push('');
+  });
+  lines.push('🌙 Lunorka');
+  return lines.join('\n');
+}
+
+async function copyMenuText(m, recipes) {
+  const text = menuPlainText(m, recipes);
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  toast(t('copiedToast'));
 }
 
 /* ================= список покупок ================= */

@@ -755,6 +755,72 @@ textarea { resize: vertical; min-height: 60px; }
 .settings-row:last-child { margin-bottom: 0; }
 .settings-row > label { display: block; font-size: 14px; color: var(--text-dim); margin-bottom: 8px; }
 
+/* ---------- меню ---------- */
+.title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.title-row .page-title { margin-bottom: 18px; }
+.menu-card {
+  padding: 16px 18px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.25s;
+}
+.menu-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px var(--shadow), 0 0 18px var(--glow);
+}
+.menu-card-name {
+  font-family: var(--font-head);
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.menu-recipe-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  background: var(--bg-input);
+  transition: all 0.15s;
+}
+.menu-recipe-row.selected {
+  border-color: var(--accent);
+  background: var(--glow);
+}
+.menu-check {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  border-radius: 7px;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--btn-text);
+  transition: all 0.15s;
+}
+.menu-recipe-row.selected .menu-check {
+  background: linear-gradient(135deg, var(--accent-deep), var(--accent));
+  border-color: transparent;
+}
+.menu-rname { flex: 1; font-size: 15px; }
+.menu-rtime { color: var(--text-dim); font-size: 13px; white-space: nowrap; }
+.ec-sub {
+  font-family: var(--font-head);
+  font-size: 18px;
+  color: #8a6fae;
+  margin: 12px 0 6px;
+}
+
 /* ---------- экспорт и печать ---------- */
 .export-holder {
   position: fixed;
