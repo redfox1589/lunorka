@@ -39,6 +39,29 @@ function plural(n, forms) {
   return forms[2];
 }
 
+/* время и порции необязательны: 0/пусто — не показываем */
+function metaParts(r) {
+  const parts = [];
+  if (r.time > 0) parts.push(`⏱ ${r.time} ${t('min')}`);
+  if (r.servings > 0) parts.push(`🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}`);
+  return parts;
+}
+function metaSpansHtml(r) {
+  return metaParts(r).map(p => `<span>${p}</span>`).join('');
+}
+function exportMetaText(r, withCat = true) {
+  const parts = [];
+  if (withCat) parts.push('📂 ' + t('cat_' + r.category));
+  parts.push(...metaParts(r));
+  return parts.join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+}
+function metaPlainText(r, withCat = true) {
+  const parts = [];
+  if (withCat) parts.push(t('cat_' + r.category));
+  parts.push(...metaParts(r));
+  return parts.join(' · ');
+}
+
 /* ================= i18n ================= */
 const I18N = {
   ru: {
@@ -84,7 +107,7 @@ const I18N = {
     tag_japanese: 'Японская кухня', tag_mexican: 'Мексиканская кухня', tag_homestyle: 'Домашняя кухня',
     tag_vegetarian: 'Вегетарианское', tag_vegan: 'Веганское', tag_quick: 'Быстрое',
     photo: 'Фотография', photoHint: 'Нажмите, чтобы загрузить фото', photoChange: 'Нажмите, чтобы заменить фото',
-    category: 'Категория', time: 'Время приготовления (мин)', servingsN: 'Количество порций',
+    category: 'Категория', time: 'Время приготовления, мин (не обязательно)', servingsN: 'Количество порций (не обязательно)',
     ingredients: 'Ингредиенты', ingredientPh: 'Ингредиент', amountPh: 'Количество',
     addIngredient: '+ Добавить ингредиент',
     steps: 'Пошаговое приготовление', stepPh: 'Опишите шаг...', addStep: '+ Добавить шаг',
@@ -178,7 +201,7 @@ const I18N = {
     tag_japanese: 'Japanese cuisine', tag_mexican: 'Mexican cuisine', tag_homestyle: 'Homestyle',
     tag_vegetarian: 'Vegetarian', tag_vegan: 'Vegan', tag_quick: 'Quick',
     photo: 'Photo', photoHint: 'Click to upload a photo', photoChange: 'Click to change the photo',
-    category: 'Category', time: 'Cooking time (min)', servingsN: 'Servings',
+    category: 'Category', time: 'Cooking time, min (optional)', servingsN: 'Servings (optional)',
     ingredients: 'Ingredients', ingredientPh: 'Ingredient', amountPh: 'Amount',
     addIngredient: '+ Add ingredient',
     steps: 'Step-by-step instructions', stepPh: 'Describe the step...', addStep: '+ Add step',
@@ -677,14 +700,13 @@ function render() {
 }
 
 /* ================= главная: мои рецепты ================= */
-let listState = { search: '', category: 'all', tab: 'all' };
+let listState = { search: '', category: 'all', tag: 'all', tab: 'all' };
 
 function recipeEmoji(r) {
   return r.emoji || { breakfasts: '🍳', soups: '🍲', salads: '🥗', mains: '🍝', desserts: '🍰', drinks: '🍹', snacks: '🥨', baking: '🥐' }[r.category] || '🍽';
 }
 
-function recipeCardHtml(r) {
-  const photo = r.photo
+function recipeCardHtml(r) {  const photo = r.photo
     ? `<img src="${r.photo}" alt="${esc(r.name)}">`
     : `<span class="ph-emoji">${recipeEmoji(r)}</span>`;
   return `
@@ -694,10 +716,7 @@ function recipeCardHtml(r) {
       </div>
       <div class="recipe-info">
         <div class="recipe-name">${esc(r.name)}</div>
-        <div class="recipe-meta">
-          <span>⏱ ${r.time} ${t('min')}</span>
-          <span>🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}</span>
-        </div>
+        <div class="recipe-meta">${metaSpansHtml(r)}</div>
       </div>
     </div>`;
 }
@@ -718,14 +737,53 @@ function viewRecipes(mode) {
       <button class="chip ${listState.category === 'all' ? 'active' : ''}" data-cat="all">${t('cat_all')}</button>
       ${CATEGORIES.map(c => `<button class="chip ${listState.category === c ? 'active' : ''}" data-cat="${c}">${t('cat_' + c)}</button>`).join('')}
     </div>
+    <div class="chips" id="tag-chips"></div>
     <div class="recipe-grid" id="grid"></div>`);
 
   const grid = $('#grid');
+
+  // теги, которые реально встречаются в рецептах пользователя
+  const builtinInUse = new Set();
+  const customInUse = new Set();
+  data.recipes.forEach(r => (r.tags || []).forEach(tag => {
+    const bk = BUILT_IN_TAGS.find(k => I18N.ru[k] === tag || I18N.en[k] === tag);
+    if (bk) builtinInUse.add(bk);
+    else customInUse.add(tag);
+  }));
+  const tagFilterList = [
+    ...BUILT_IN_TAGS.filter(k => builtinInUse.has(k)).map(k => ({ label: t(k), match: [I18N.ru[k], I18N.en[k]] })),
+    ...[...customInUse].sort().map(tag => ({ label: tag, match: [tag] })),
+  ];
+  const tagChipsEl = $('#tag-chips');
+  tagChipsEl.style.display = '';
+  if (tagFilterList.length) {
+    tagChipsEl.innerHTML = `
+      <button class="chip ${listState.tag === 'all' ? 'active' : ''}" data-tag="all">${t('cat_all')}</button>
+      ${tagFilterList.map((tf, i) => `<button class="chip ${listState.tag === tf.label ? 'active' : ''}" data-tagidx="${i}">${esc(tf.label)}</button>`).join('')}`;
+    $$('[data-tag="all"]', tagChipsEl).forEach(b => b.addEventListener('click', () => {
+      listState.tag = 'all';
+      $$('.chip', tagChipsEl).forEach(x => x.classList.toggle('active', x === b));
+      draw();
+    }));
+    $$('[data-tagidx]', tagChipsEl).forEach(b => b.addEventListener('click', () => {
+      const tf = tagFilterList[+b.dataset.tagidx];
+      listState.tag = listState.tag === tf.label ? 'all' : tf.label;
+      $$('.chip', tagChipsEl).forEach(x => x.classList.toggle('active',
+        (x.dataset.tag === 'all' && listState.tag === 'all') || (x === b && listState.tag === tf.label)));
+      draw();
+    }));
+  } else {
+    tagChipsEl.style.display = 'none';
+  }
+
+  const activeTag = tagFilterList.find(tf => tf.label === listState.tag);
+
   const draw = () => {
     const q = listState.search.trim().toLowerCase();
     let list = data.recipes.slice().sort((a, b) => b.createdAt - a.createdAt);
     if (listState.tab === 'fav') list = list.filter(r => r.favorite);
     if (listState.category !== 'all') list = list.filter(r => r.category === listState.category);
+    if (activeTag) list = list.filter(r => (r.tags || []).some(tag => activeTag.match.includes(tag)));
     if (q) list = list.filter(r =>
       r.name.toLowerCase().includes(q) ||
       (r.description || '').toLowerCase().includes(q) ||
@@ -733,9 +791,9 @@ function viewRecipes(mode) {
       r.ingredients.some(i => i.name.toLowerCase().includes(q)));
 
     if (!list.length) {
-      const msg = q || listState.category !== 'all' ? t('nothingFound')
+      const msg = q || listState.category !== 'all' || activeTag ? t('nothingFound')
         : listState.tab === 'fav' ? t('emptyFav') : t('emptyAll');
-      const failed = !q && listState.category === 'all' && listState.tab === 'all' && lastLoadInfo && !lastLoadInfo.ok;
+      const failed = !q && listState.category === 'all' && !activeTag && listState.tab === 'all' && lastLoadInfo && !lastLoadInfo.ok;
       grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><span class="empty-moon">🌘</span>${msg}
         ${failed ? `<br><button class="btn btn--small" id="retry-load-btn" style="margin-top:16px">${t('retryBtn')}</button>` : ''}</div>`;
       $('#retry-load-btn')?.addEventListener('click', retryLoad);
@@ -916,8 +974,8 @@ function viewRecipeForm(id) {
         <div class="chips chips--wrap" id="tags-custom">${customTagsHtml()}</div>
       </div>
       <div class="field-row">
-        <div class="field"><label>${t('time')}</label><input name="time" type="number" min="1" value="${draft.time}"></div>
-        <div class="field"><label>${t('servingsN')}</label><input name="servings" type="number" min="1" value="${draft.servings}"></div>
+        <div class="field"><label>${t('time')}</label><input name="time" type="number" min="0" value="${draft.time || ''}"></div>
+        <div class="field"><label>${t('servingsN')}</label><input name="servings" type="number" min="0" value="${draft.servings || ''}"></div>
       </div>
       <div class="field">
         <label>${t('ingredients')}</label>
@@ -1027,8 +1085,8 @@ function viewRecipeForm(id) {
       description: (fd.get('description') || '').trim(),
       tags: [...selectedBuiltin].map(k => t(k)).concat([...customTags]),
       category: fd.get('category'),
-      time: Math.max(1, parseInt(fd.get('time'), 10) || 1),
-      servings: Math.max(1, parseInt(fd.get('servings'), 10) || 1),
+      time: Math.max(0, parseInt(fd.get('time'), 10) || 0),
+      servings: Math.max(0, parseInt(fd.get('servings'), 10) || 0),
       ingredients,
       steps,
     };
@@ -1075,9 +1133,7 @@ function viewRecipeDetail(id) {
     </div>
     <h2 class="detail-title">${esc(r.name)}</h2>
     <div class="detail-meta">
-      <span>📂 ${t('cat_' + r.category)}</span>
-      <span>⏱ ${r.time} ${t('min')}</span>
-      <span>🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}</span>
+      <span>📂 ${t('cat_' + r.category)}</span>${metaSpansHtml(r)}
     </div>
     ${r.description ? `<p class="detail-desc">${esc(r.description)}</p>` : ''}
     ${r.tags && r.tags.length ? `<div class="chips chips--wrap detail-tags">${r.tags.map(tag => `<span class="chip chip--static">${esc(tag)}</span>`).join('')}</div>` : ''}
@@ -1159,7 +1215,7 @@ function exportCardHtml(r) {
       <div class="ec-head"><img src="design/Lunorka_icon.svg" alt=""><span>Lunorka</span></div>
       <h1 class="ec-title">${esc(r.name)}</h1>
       ${r.photo ? `<img class="ec-photo" src="${r.photo}" alt="">` : ''}
-      <div class="ec-meta">📂 ${t('cat_' + r.category)}&nbsp;&nbsp;·&nbsp;&nbsp;⏱ ${r.time} ${t('min')}&nbsp;&nbsp;·&nbsp;&nbsp;🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}</div>
+      <div class="ec-meta">${exportMetaText(r)}</div>
       ${r.description ? `<p class="ec-desc">${esc(r.description)}</p>` : ''}
       ${r.tags && r.tags.length ? `<div class="ec-tags">${r.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}
       <h2 class="ec-h">${t('ingredients')}</h2>
@@ -1301,7 +1357,7 @@ function findCleanCuts(canvas, sliceH) {
 function recipePlainText(r) {
   const lines = [];
   lines.push(`🌙 ${r.name}`);
-  lines.push(`${t('cat_' + r.category)} · ${r.time} ${t('min')} · ${r.servings} ${plural(r.servings, t('servingsForms'))}`);
+  lines.push(`${metaPlainText(r)}`);
   if (r.tags && r.tags.length) lines.push(`${t('tags')}: ${r.tags.join(', ')}`);
   if (r.description) { lines.push(''); lines.push(r.description); }
   lines.push('');
@@ -1398,7 +1454,7 @@ function viewMenuForm(id) {
       <div class="menu-recipe-row ${selected.has(r.id) ? 'selected' : ''}" data-id="${r.id}">
         <span class="menu-check">${selected.has(r.id) ? '✓' : ''}</span>
         <span class="menu-rname">${recipeEmoji(r)} ${esc(r.name)}</span>
-        <span class="menu-rtime">⏱ ${r.time} ${t('min')}</span>
+        <span class="menu-rtime">${r.time > 0 ? `⏱ ${r.time} ${t('min')}` : ''}</span>
       </div>`).join('');
     $$('.menu-recipe-row', wrap).forEach(row => row.addEventListener('click', () => {
       if (selected.has(row.dataset.id)) selected.delete(row.dataset.id);
@@ -1517,7 +1573,7 @@ function exportMenuCardHtml(m, recipes) {
       <div class="ec-meta">🍽 ${recipes.length} ${plural(recipes.length, t('recipesForms'))}</div>
       ${recipes.map((r, i) => `
         <h2 class="ec-h">${i + 1}. ${esc(r.name)}</h2>
-        <div class="ec-meta">📂 ${t('cat_' + r.category)}&nbsp;&nbsp;·&nbsp;&nbsp;⏱ ${r.time} ${t('min')}&nbsp;&nbsp;·&nbsp;&nbsp;🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}</div>
+        <div class="ec-meta">${exportMetaText(r)}</div>
         ${r.description ? `<p class="ec-desc">${esc(r.description)}</p>` : ''}
         ${r.tags && r.tags.length ? `<div class="ec-tags">${r.tags.map(tag => `<span>${esc(tag)}</span>`).join('')}</div>` : ''}
         <h3 class="ec-sub">${t('ingredients')}</h3>
@@ -1537,7 +1593,8 @@ function menuPlainText(m, recipes) {
   lines.push(`🌙 ${m.name}`);
   lines.push('');
   recipes.forEach((r, i) => {
-    lines.push(`${i + 1}. ${r.name} (${r.time} ${t('min')}, ${r.servings} ${plural(r.servings, t('servingsForms'))})`);
+    const meta = metaPlainText(r, false);
+    lines.push(`${i + 1}. ${r.name}${meta ? ` (${meta})` : ''}`);
     if (r.description) lines.push(r.description);
     lines.push(`   ${t('ingredients')}:`);
     r.ingredients.forEach(ing => lines.push(`   — ${ing.name}${ing.amount ? ' — ' + ing.amount : ''}`));
@@ -1822,9 +1879,7 @@ async function viewShare(type, id) {
       <div class="detail-hero">${r.photo ? `<img src="${r.photo}" alt="${esc(r.name)}">` : `<span>${recipeEmoji(r)}</span>`}</div>
       <h2 class="detail-title">${esc(r.name)}</h2>
       <div class="detail-meta">
-        <span>📂 ${t('cat_' + r.category)}</span>
-        <span>⏱ ${r.time} ${t('min')}</span>
-        <span>🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}</span>
+        <span>📂 ${t('cat_' + r.category)}</span>${metaSpansHtml(r)}
       </div>
       ${r.description ? `<p class="detail-desc">${esc(r.description)}</p>` : ''}
       ${r.tags && r.tags.length ? `<div class="chips chips--wrap detail-tags">${r.tags.map(tag => `<span class="chip chip--static">${esc(tag)}</span>`).join('')}</div>` : ''}
