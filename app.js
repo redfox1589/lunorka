@@ -715,7 +715,7 @@ function recipeEmoji(r) {
 function recipeIconHtml(r) {
   const file = CATEGORY_ICONS[r.category];
   if (!file) return `<span class="ph-emoji">${recipeEmoji(r)}</span>`;
-  return `<img class="ph-icon" src="design/Lunorka_magic_categories/SVG/${file}.svg" alt="${esc(t('cat_' + r.category))}" loading="lazy">`;
+  return `<img class="ph-icon" src="design/Lunorka_magic_icons_transparent_PNG_SVG/SVG/${file}.svg" alt="${esc(t('cat_' + r.category))}" loading="lazy">`;
 }
 
 function recipeCardHtml(r) {  const photo = r.photo
