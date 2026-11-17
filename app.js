@@ -131,6 +131,7 @@ const I18N = {
     loginToAdd: 'Войдите или зарегистрируйтесь — рецепт добавится к вам автоматически',
     recipeAdded: 'Рецепт добавлен в вашу книгу',
     menuAdded: 'Меню добавлено в вашу книгу',
+    copyingRecipes: 'Добавляю рецепты к вам...',
     sharedWithYou: 'С вами поделились рецептом',
     sharedMenuWithYou: 'С вами поделились меню',
   },
@@ -224,6 +225,7 @@ const I18N = {
     loginToAdd: 'Sign in or sign up — it will be added automatically',
     recipeAdded: 'Recipe added to your book',
     menuAdded: 'Menu added to your book',
+    copyingRecipes: 'Adding the recipes to your book...',
     sharedWithYou: 'A recipe was shared with you',
     sharedMenuWithYou: 'A menu was shared with you',
   },
@@ -1847,8 +1849,9 @@ async function viewShare(type, id) {
       return;
     }
     const ids = menuRow.recipe_ids || [];
+    // лёгкий запрос без фото — публичная страница открывается быстро даже на слабой сети
     const { data: recipeRows } = ids.length
-      ? await sb.from('recipes').select('*').in('id', ids)
+      ? await sb.from('recipes').select('id,name,emoji,description,tags,category,time,servings,ingredients,steps,favorite,is_shared,created_at').in('id', ids)
       : { data: [] };
     const recipes = ids.map(rid => (recipeRows || []).find(rr => rr.id === rid)).filter(Boolean).map(rowToRecipe);
     shareShell(`
@@ -1900,17 +1903,27 @@ async function addSharedMenu(menuRow) {
     return;
   }
   const ids = menuRow.recipe_ids || [];
-  const { data: rows } = ids.length
-    ? await sb.from('recipes').select('*').in('id', ids)
-    : { data: [] };
-  const newIds = [];
-  for (const rr of rows || []) {
-    const { data: ins, error } = await sb.from('recipes').insert(recipeSharePayload(rr)).select().single();
-    if (!error) {
-      newIds.push(ins.id);
-      data.recipes.unshift(rowToRecipe(ins));
+  // копируем порциями, чтобы не упереться в таймаут на тяжёлых фото
+  toast(t('copyingRecipes'));
+  const idToNewId = {};
+  for (let i = 0; i < ids.length; i += 3) {
+    const chunk = ids.slice(i, i + 3);
+    const { data: rows } = await sb.from('recipes').select('*').in('id', chunk);
+    for (const rr of rows || []) {
+      let photo = rr.photo || '';
+      if (photo.length > 600000) {
+        try { photo = await compressDataUrl(photo); } catch { /* оставляем оригинал */ }
+      }
+      const { data: ins, error } = await sb.from('recipes')
+        .insert({ ...recipeSharePayload(rr), photo })
+        .select().single();
+      if (!error) {
+        idToNewId[rr.id] = ins.id;
+        data.recipes.unshift(rowToRecipe(ins));
+      }
     }
   }
+  const newIds = ids.map(rid => idToNewId[rid]).filter(Boolean);
   const { data: menuIns, error } = await sb.from('menus').insert({ name: menuRow.name, recipe_ids: newIds }).select().single();
   if (error) { toast(t('errGeneric')); return; }
   data.menus.unshift(rowToMenu(menuIns));
