@@ -776,9 +776,8 @@ function viewRecipes(mode) {
     tagChipsEl.style.display = 'none';
   }
 
-  const activeTag = tagFilterList.find(tf => tf.label === listState.tag);
-
   const draw = () => {
+    const activeTag = tagFilterList.find(tf => tf.label === listState.tag);
     const q = listState.search.trim().toLowerCase();
     let list = data.recipes.slice().sort((a, b) => b.createdAt - a.createdAt);
     if (listState.tab === 'fav') list = list.filter(r => r.favorite);
