@@ -1861,10 +1861,15 @@ async function viewShare(type, id) {
       <div class="detail-actions">
         <button class="btn" id="share-add">${t('addToAccount')}</button>
       </div>
-      <div class="recipe-grid">
+      <div class="recipe-grid" id="share-grid">
         ${recipes.map(recipeCardHtml).join('')}
       </div>`);
     $('#share-add').addEventListener('click', () => addSharedMenu(menuRow));
+    $$('#share-grid [data-open]').forEach(c =>
+      c.addEventListener('click', (e) => {
+        if (e.target.closest('[data-fav]')) return;
+        navigate('#/share/recipe/' + c.dataset.open);
+      }));
   } else {
     navigate('#/recipes');
   }
