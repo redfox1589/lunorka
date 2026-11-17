@@ -2042,5 +2042,16 @@ sb.auth.onAuthStateChange(async (event, session) => {
   applyTheme(localStorage.getItem('lunorka_theme') || 'dark');
   document.documentElement.lang = getLang();
   window.addEventListener('hashchange', render);
+
+  // колесо мыши прокручивает горизонтальные ряды чипов (категории, теги)
+  document.addEventListener('wheel', (e) => {
+    const chips = e.target.closest('.chips');
+    if (!chips) return;
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && chips.scrollWidth > chips.clientWidth) {
+      chips.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }
+  }, { passive: false });
+
   render();
 })();
