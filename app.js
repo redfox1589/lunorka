@@ -122,6 +122,17 @@ const I18N = {
     recipesForms: ['рецепт', 'рецепта', 'рецептов'],
     backToMenus: '← К списку меню',
     retryBtn: '⟳ Повторить загрузку',
+    share: '🔗 Поделиться', shareCopy: '📋 Копировать', shareRevoke: 'Отозвать',
+    shareRevoked: 'Ссылка отозвана', linkCopied: 'Ссылка скопирована в буфер обмена',
+    shareInfo: 'По этой ссылке рецепт сможет увидеть любой, у кого она есть.',
+    shareInfoMenu: 'По этой ссылке меню и все его рецепты сможет увидеть любой, у кого она есть.',
+    shareNotFound: 'Ссылка недействительна или доступ отозван.',
+    addToAccount: '➕ Добавить к себе',
+    loginToAdd: 'Войдите или зарегистрируйтесь — рецепт добавится к вам автоматически',
+    recipeAdded: 'Рецепт добавлен в вашу книгу',
+    menuAdded: 'Меню добавлено в вашу книгу',
+    sharedWithYou: 'С вами поделились рецептом',
+    sharedMenuWithYou: 'С вами поделились меню',
   },
   en: {
     tagline: 'A magical cookbook',
@@ -204,6 +215,17 @@ const I18N = {
     recipesForms: ['recipe', 'recipes', 'recipes'],
     backToMenus: '← Back to menus',
     retryBtn: '⟳ Retry loading',
+    share: '🔗 Share', shareCopy: '📋 Copy', shareRevoke: 'Revoke',
+    shareRevoked: 'Link revoked', linkCopied: 'Link copied to clipboard',
+    shareInfo: 'Anyone with this link can view the recipe.',
+    shareInfoMenu: 'Anyone with this link can view the menu and all its recipes.',
+    shareNotFound: 'The link is invalid or access has been revoked.',
+    addToAccount: '➕ Add to my book',
+    loginToAdd: 'Sign in or sign up — it will be added automatically',
+    recipeAdded: 'Recipe added to your book',
+    menuAdded: 'Menu added to your book',
+    sharedWithYou: 'A recipe was shared with you',
+    sharedMenuWithYou: 'A menu was shared with you',
   },
 };
 
@@ -323,19 +345,19 @@ function rowToRecipe(r) {
     description: r.description || '', tags: r.tags || [],
     category: r.category, time: r.time, servings: r.servings,
     ingredients: r.ingredients || [], steps: r.steps || [],
-    favorite: !!r.favorite, createdAt: new Date(r.created_at).getTime(),
+    favorite: !!r.favorite, isShared: !!r.is_shared, createdAt: new Date(r.created_at).getTime(),
   };
 }
 function rowToItem(i) {
   return { id: i.id, name: i.name, amount: i.amount || '', done: !!i.done, from: i.from_name || '' };
 }
 function rowToMenu(m) {
-  return { id: m.id, name: m.name, recipeIds: m.recipe_ids || [], createdAt: new Date(m.created_at).getTime() };
+  return { id: m.id, name: m.name, recipeIds: m.recipe_ids || [], isShared: !!m.is_shared, createdAt: new Date(m.created_at).getTime() };
 }
 
 async function loadUserData() {
   const run = () => Promise.all([
-    sb.from('recipes').select('id,name,emoji,description,tags,category,time,servings,ingredients,steps,favorite,created_at').order('created_at', { ascending: false }),
+    sb.from('recipes').select('id,name,emoji,description,tags,category,time,servings,ingredients,steps,favorite,is_shared,created_at').order('created_at', { ascending: false }),
     sb.from('shopping_items').select('*').order('created_at', { ascending: true }),
     sb.from('menus').select('*').order('created_at', { ascending: false }),
   ]);
@@ -625,10 +647,15 @@ function renderShell(activePage, viewHtml) {
 function render() {
   // ссылки из писем Supabase приходят с токеном в hash — их обрабатывает клиент Supabase
   if (location.hash.includes('access_token') || location.hash.includes('type=recovery')) return;
-  if (!currentUser) { renderAuth('login'); return; }
   const parts = (location.hash || '#/recipes').replace(/^#\//, '').split('/');
   const page = parts[0] || 'recipes';
   const arg = decodeURIComponent(parts[1] || '');
+  const arg2 = decodeURIComponent(parts[2] || '');
+
+  // публичные ссылки работают и без входа
+  if (page === 'share') { viewShare(arg, arg2); return; }
+
+  if (!currentUser) { renderAuth('login'); return; }
 
   switch (page) {
     case 'recipes': viewRecipes('all'); break;
@@ -1063,7 +1090,9 @@ function viewRecipeDetail(id) {
       <button class="btn btn--ghost btn--small" id="exp-jpg">${t('exportJpg')}</button>
       <button class="btn btn--ghost btn--small" id="copy-btn">${t('copyText')}</button>
       <button class="btn btn--ghost btn--small" id="print-btn">${t('printBtn')}</button>
+      <button class="btn btn--ghost btn--small" id="share-btn">${t('share')}</button>
     </div>
+    <div id="share-slot">${r.isShared ? sharePanelHtml(shareUrl('recipe', r.id), 'shareInfo') : ''}</div>
     <div class="detail-section card">
       <h3>${t('ingredients')}</h3>
       <ul class="ing-list">
@@ -1102,6 +1131,23 @@ function viewRecipeDetail(id) {
   $('#exp-pdf').addEventListener('click', () => exportRecipePdf(r));
   $('#copy-btn').addEventListener('click', () => copyRecipeText(r));
   $('#print-btn').addEventListener('click', () => printRecipe(r));
+
+  $('#share-btn').addEventListener('click', async () => {
+    if (r.isShared) return;
+    if (!await setRecipeShared(r, true)) return;
+    await copyText(shareUrl('recipe', r.id));
+    toast(t('linkCopied'));
+    render();
+  });
+  $('#share-copy')?.addEventListener('click', async () => {
+    await copyText($('#share-url-input').value);
+    toast(t('linkCopied'));
+  });
+  $('#share-revoke')?.addEventListener('click', async () => {
+    if (!await setRecipeShared(r, false)) return;
+    toast(t('shareRevoked'));
+    render();
+  });
 }
 
 /* ================= экспорт рецепта ================= */
@@ -1407,7 +1453,9 @@ function viewMenuDetail(id) {
       <button class="btn btn--ghost btn--small" id="exp-jpg">${t('exportJpg')}</button>
       <button class="btn btn--ghost btn--small" id="copy-btn">${t('copyText')}</button>
       <button class="btn btn--ghost btn--small" id="print-btn">${t('printBtn')}</button>
+      <button class="btn btn--ghost btn--small" id="share-btn">${t('share')}</button>
     </div>
+    <div id="share-slot">${m.isShared ? sharePanelHtml(shareUrl('menu', m.id), 'shareInfoMenu') : ''}</div>
     <div class="recipe-grid" id="menu-grid">
       ${recipes.map(recipeCardHtml).join('')}
     </div>`);
@@ -1439,6 +1487,23 @@ function viewMenuDetail(id) {
   $('#print-btn').addEventListener('click', () => {
     $('#print-area').innerHTML = exportMenuCardHtml(m, recipes);
     window.print();
+  });
+
+  $('#share-btn').addEventListener('click', async () => {
+    if (m.isShared) return;
+    if (!await setMenuShared(m, true)) return;
+    await copyText(shareUrl('menu', m.id));
+    toast(t('linkCopied'));
+    render();
+  });
+  $('#share-copy')?.addEventListener('click', async () => {
+    await copyText($('#share-url-input').value);
+    toast(t('linkCopied'));
+  });
+  $('#share-revoke')?.addEventListener('click', async () => {
+    if (!await setMenuShared(m, false)) return;
+    toast(t('shareRevoked'));
+    render();
   });
 }
 
@@ -1679,6 +1744,197 @@ function viewProfile() {
   $('#logout-btn').addEventListener('click', logout);
 }
 
+/* ================= поделиться по ссылке ================= */
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+}
+
+function shareUrl(type, id) {
+  return location.origin + location.pathname + '#/share/' + type + '/' + id;
+}
+
+function sharePanelHtml(url, infoKey) {
+  return `
+    <div class="share-panel card">
+      <input readonly value="${esc(url)}" id="share-url-input">
+      <button class="btn btn--small" id="share-copy">${t('shareCopy')}</button>
+      <button class="btn btn--danger btn--small" id="share-revoke">${t('shareRevoke')}</button>
+    </div>
+    <div class="share-info">${t(infoKey)}</div>`;
+}
+
+async function setRecipeShared(r, shared) {
+  const { error } = await sb.from('recipes').update({ is_shared: shared }).eq('id', r.id);
+  if (error) { toast(t('errGeneric')); return false; }
+  r.isShared = shared;
+  return true;
+}
+
+async function setMenuShared(m, shared) {
+  const { error } = await sb.from('menus').update({ is_shared: shared }).eq('id', m.id);
+  if (error) { toast(t('errGeneric')); return false; }
+  // рецепты меню тоже становятся видимыми по ссылке / скрываются
+  if (m.recipeIds.length) {
+    await sb.from('recipes').update({ is_shared: shared }).in('id', m.recipeIds);
+    data.recipes.forEach(r => { if (m.recipeIds.includes(r.id)) r.isShared = shared; });
+  }
+  m.isShared = shared;
+  return true;
+}
+
+function shareShell(contentHtml) {
+  $('#app').innerHTML = `
+    <div class="app-shell">
+      <header class="app-header">
+        <img class="logo-icon" src="design/Lunorka_icon.svg" alt="Lunorka">
+        <span class="logo-name">Lunorka</span>
+      </header>
+      <main id="view">${contentHtml}</main>
+    </div>`;
+}
+
+async function viewShare(type, id) {
+  shareShell(`<div class="empty"><span class="empty-moon">🌙</span></div>`);
+  window.scrollTo(0, 0);
+
+  if (type === 'recipe') {
+    const { data: row, error } = await sb.from('recipes').select('*').eq('id', id).single();
+    if (error || !row || !row.is_shared) {
+      shareShell(`<div class="empty"><span class="empty-moon">🌘</span>${t('shareNotFound')}</div>`);
+      return;
+    }
+    const r = rowToRecipe(row);
+    shareShell(`
+      <div class="share-note">${t('sharedWithYou')}</div>
+      <div class="detail-hero">${r.photo ? `<img src="${r.photo}" alt="${esc(r.name)}">` : `<span>${recipeEmoji(r)}</span>`}</div>
+      <h2 class="detail-title">${esc(r.name)}</h2>
+      <div class="detail-meta">
+        <span>📂 ${t('cat_' + r.category)}</span>
+        <span>⏱ ${r.time} ${t('min')}</span>
+        <span>🍽 ${r.servings} ${plural(r.servings, t('servingsForms'))}</span>
+      </div>
+      ${r.description ? `<p class="detail-desc">${esc(r.description)}</p>` : ''}
+      ${r.tags && r.tags.length ? `<div class="chips chips--wrap detail-tags">${r.tags.map(tag => `<span class="chip chip--static">${esc(tag)}</span>`).join('')}</div>` : ''}
+      <div class="detail-actions">
+        <button class="btn" id="share-add">${t('addToAccount')}</button>
+      </div>
+      <div class="detail-section card">
+        <h3>${t('ingredients')}</h3>
+        <ul class="ing-list">
+          ${r.ingredients.map(i => `<li><span>${esc(i.name)}</span><span class="ing-amt">${esc(i.amount)}</span></li>`).join('')}
+        </ul>
+      </div>
+      <div class="detail-section card">
+        <h3>${t('steps')}</h3>
+        <ol class="steps-list">${r.steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
+      </div>`);
+    $('#share-add').addEventListener('click', () => addSharedRecipe(row));
+  } else if (type === 'menu') {
+    const { data: menuRow, error } = await sb.from('menus').select('*').eq('id', id).single();
+    if (error || !menuRow || !menuRow.is_shared) {
+      shareShell(`<div class="empty"><span class="empty-moon">🌘</span>${t('shareNotFound')}</div>`);
+      return;
+    }
+    const ids = menuRow.recipe_ids || [];
+    const { data: recipeRows } = ids.length
+      ? await sb.from('recipes').select('*').in('id', ids)
+      : { data: [] };
+    const recipes = ids.map(rid => (recipeRows || []).find(rr => rr.id === rid)).filter(Boolean).map(rowToRecipe);
+    shareShell(`
+      <div class="share-note">${t('sharedMenuWithYou')}</div>
+      <h2 class="detail-title">${esc(menuRow.name)}</h2>
+      <div class="detail-meta"><span>🍽 ${recipes.length} ${plural(recipes.length, t('recipesForms'))}</span></div>
+      <div class="detail-actions">
+        <button class="btn" id="share-add">${t('addToAccount')}</button>
+      </div>
+      <div class="recipe-grid">
+        ${recipes.map(recipeCardHtml).join('')}
+      </div>`);
+    $('#share-add').addEventListener('click', () => addSharedMenu(menuRow));
+  } else {
+    navigate('#/recipes');
+  }
+}
+
+function recipeSharePayload(row) {
+  return {
+    name: row.name, photo: row.photo || '', emoji: row.emoji || '',
+    description: row.description || '', tags: row.tags || [],
+    category: row.category, time: row.time, servings: row.servings,
+    ingredients: row.ingredients || [], steps: row.steps || [],
+  };
+}
+
+async function addSharedRecipe(row) {
+  if (!currentUser) {
+    sessionStorage.setItem('lunorka_pending_share', JSON.stringify({ type: 'recipe', id: row.id }));
+    toast(t('loginToAdd'));
+    location.hash = '';
+    renderAuth('login');
+    return;
+  }
+  const { data: inserted, error } = await sb.from('recipes').insert(recipeSharePayload(row)).select().single();
+  if (error) { toast(t('errGeneric')); return; }
+  data.recipes.unshift(rowToRecipe(inserted));
+  toast(t('recipeAdded'));
+  navigate('#/recipe/' + inserted.id);
+}
+
+async function addSharedMenu(menuRow) {
+  if (!currentUser) {
+    sessionStorage.setItem('lunorka_pending_share', JSON.stringify({ type: 'menu', id: menuRow.id }));
+    toast(t('loginToAdd'));
+    location.hash = '';
+    renderAuth('login');
+    return;
+  }
+  const ids = menuRow.recipe_ids || [];
+  const { data: rows } = ids.length
+    ? await sb.from('recipes').select('*').in('id', ids)
+    : { data: [] };
+  const newIds = [];
+  for (const rr of rows || []) {
+    const { data: ins, error } = await sb.from('recipes').insert(recipeSharePayload(rr)).select().single();
+    if (!error) {
+      newIds.push(ins.id);
+      data.recipes.unshift(rowToRecipe(ins));
+    }
+  }
+  const { data: menuIns, error } = await sb.from('menus').insert({ name: menuRow.name, recipe_ids: newIds }).select().single();
+  if (error) { toast(t('errGeneric')); return; }
+  data.menus.unshift(rowToMenu(menuIns));
+  toast(t('menuAdded'));
+  navigate('#/menu/' + menuIns.id);
+}
+
+/* После входа/регистрации по ссылке-приглашению — добавляем автоматически */
+async function handlePendingShare() {
+  let p = null;
+  try { p = JSON.parse(sessionStorage.getItem('lunorka_pending_share')); } catch { /* ignore */ }
+  if (!p) return;
+  sessionStorage.removeItem('lunorka_pending_share');
+  if (p.type === 'recipe') {
+    const { data: row } = await sb.from('recipes').select('*').eq('id', p.id).single();
+    if (row && row.is_shared) await addSharedRecipe(row);
+    else navigate('#/recipes');
+  } else if (p.type === 'menu') {
+    const { data: row } = await sb.from('menus').select('*').eq('id', p.id).single();
+    if (row && row.is_shared) await addSharedMenu(row);
+    else navigate('#/recipes');
+  }
+}
+
 /* ================= запуск ================= */
 /* Единая точка входа — событие INITIAL_SESSION: оно приходит, когда клиент
    уже восстановил и при необходимости обновил токен, так что запросы к базе
@@ -1700,6 +1956,7 @@ sb.auth.onAuthStateChange(async (event, session) => {
     try {
       await loginAs(session.user);
       if (event === 'SIGNED_IN') toast(t('welcomeBack').replace('{name}', currentUser.name));
+      if (event === 'SIGNED_IN') await handlePendingShare();
     } catch (e) {
       console.error('Ошибка входа в приложение:', e);
       toast(t('errLoad'));

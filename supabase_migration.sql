@@ -19,3 +19,13 @@ alter table public.menus enable row level security;
 
 create policy "own menus" on public.menus
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Публичные ссылки: чем поделились, то может прочитать любой по прямой ссылке
+alter table public.recipes add column if not exists is_shared boolean default false;
+alter table public.menus add column if not exists is_shared boolean default false;
+
+create policy "shared recipes are readable" on public.recipes
+  for select using (is_shared = true);
+
+create policy "shared menus are readable" on public.menus
+  for select using (is_shared = true);
