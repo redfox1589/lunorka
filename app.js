@@ -702,13 +702,25 @@ function render() {
 /* ================= главная: мои рецепты ================= */
 let listState = { search: '', category: 'all', tag: 'all', tab: 'all' };
 
+const CATEGORY_ICONS = {
+  breakfasts: '01_zavtraki', soups: '02_supy', salads: '03_salaty', mains: '04_osnovnye_blyuda',
+  desserts: '05_deserty', drinks: '06_napitki', snacks: '07_zakuski', baking: '08_vypechka',
+};
+
 function recipeEmoji(r) {
   return r.emoji || { breakfasts: '🍳', soups: '🍲', salads: '🥗', mains: '🍝', desserts: '🍰', drinks: '🍹', snacks: '🥨', baking: '🥐' }[r.category] || '🍽';
 }
 
+/* иконка категории для рецептов без фото */
+function recipeIconHtml(r) {
+  const file = CATEGORY_ICONS[r.category];
+  if (!file) return `<span class="ph-emoji">${recipeEmoji(r)}</span>`;
+  return `<img class="ph-icon" src="design/Lunorka_magic_categories/SVG/${file}.svg" alt="${esc(t('cat_' + r.category))}" loading="lazy">`;
+}
+
 function recipeCardHtml(r) {  const photo = r.photo
     ? `<img src="${r.photo}" alt="${esc(r.name)}">`
-    : `<span class="ph-emoji">${recipeEmoji(r)}</span>`;
+    : recipeIconHtml(r);
   return `
     <div class="recipe-card card" data-open="${r.id}">
       <div class="recipe-photo">${photo}
@@ -1123,7 +1135,7 @@ function viewRecipeDetail(id) {
 
   const hero = r.photo
     ? `<img src="${r.photo}" alt="${esc(r.name)}">`
-    : `<span>${recipeEmoji(r)}</span>`;
+    : recipeIconHtml(r);
 
   renderShell('recipes', `
     <div class="detail-hero">${hero}
@@ -1452,7 +1464,7 @@ function viewMenuForm(id) {
     wrap.innerHTML = data.recipes.map(r => `
       <div class="menu-recipe-row ${selected.has(r.id) ? 'selected' : ''}" data-id="${r.id}">
         <span class="menu-check">${selected.has(r.id) ? '✓' : ''}</span>
-        <span class="menu-rname">${recipeEmoji(r)} ${esc(r.name)}</span>
+        <span class="menu-rname">${recipeIconHtml(r)} ${esc(r.name)}</span>
         <span class="menu-rtime">${r.time > 0 ? `⏱ ${r.time} ${t('min')}` : ''}</span>
       </div>`).join('');
     $$('.menu-recipe-row', wrap).forEach(row => row.addEventListener('click', () => {
@@ -1875,7 +1887,7 @@ async function viewShare(type, id) {
     const r = rowToRecipe(row);
     shareShell(`
       <div class="share-note">${t('sharedWithYou')}</div>
-      <div class="detail-hero">${r.photo ? `<img src="${r.photo}" alt="${esc(r.name)}">` : `<span>${recipeEmoji(r)}</span>`}</div>
+      <div class="detail-hero">${r.photo ? `<img src="${r.photo}" alt="${esc(r.name)}">` : recipeIconHtml(r)}</div>
       <h2 class="detail-title">${esc(r.name)}</h2>
       <div class="detail-meta">
         <span>📂 ${t('cat_' + r.category)}</span>${metaSpansHtml(r)}
